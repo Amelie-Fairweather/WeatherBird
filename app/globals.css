@@ -3,13 +3,21 @@
 :root {
   --background: #ffffff;
   --foreground: #171717;
-}
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --darkBlue: #3a3d78;
+    --gold: #fde1f3;
+  --white: #fafafa;
+  --medBlue: #342b93;
+  --goldDark: #fbdffa;
+  --neutralBlue: #5a7a9a;
+  --neutralBlueLight: #7a9ab8;
+  --neutralBlueDark: #3a5a7a;
+  --offWhite: #F8F5F2; /* warm, soft off-white */
+  --offWhite2: #f5dddf; /* a touch brighter, still soft */
+  --offWhite3: #fcd8d8; /* very subtle pinkish tint to complement mauve */
+  --font-rouge-script: "Rouge Script", cursive;
+  --font-cormorant: "Cormorant Garamond", serif;
+  --font-caveat: "Caveat", cursive;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -23,4 +31,113 @@ body {
   background: var(--background);
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+.text-shadow {
+  text-shadow: 2px 2px 4px rgba(0,0,0,0.5);
+}
+.font-playfair {
+  font-family: var(--font-playfair);
+}
+
+:root {
+  --font-rouge-script: "Rouge Script", cursive;
+  --font-cormorant: "Cormorant Garamond", serif;
+  --font-caveat: "Caveat", cursive;
+}
+.rouge-script {
+  font-family: var(--font-rouge-script);
+}
+.font-rouge-script {
+  font-family: var(--font-rouge-script) !important;
+}
+.font-cormorant {
+  font-family: var(--font-cormorant);
+}
+.font-caveat {
+  font-family: var(--font-caveat) !important;
+}
+
+/* Bird wing flapping animation - beating motion */
+@keyframes flapLeft {
+  0% {
+    transform: rotate(0deg) translateY(0px);
+    transform-origin: 140px 145px;
+  }
+  20% {
+    transform: rotate(-20deg) translateY(-3px);
+    transform-origin: 140px 145px;
+  }
+  40% {
+    transform: rotate(-40deg) translateY(-10px);
+    transform-origin: 140px 145px;
+  }
+  50% {
+    transform: rotate(-45deg) translateY(-12px);
+    transform-origin: 140px 145px;
+  }
+  60% {
+    transform: rotate(-40deg) translateY(-10px);
+    transform-origin: 140px 145px;
+  }
+  80% {
+    transform: rotate(-20deg) translateY(-3px);
+    transform-origin: 140px 145px;
+  }
+  100% {
+    transform: rotate(0deg) translateY(0px);
+    transform-origin: 140px 145px;
+  }
+}
+
+@keyframes flapRight {
+  0% {
+    transform: rotate(0deg) translateY(0px);
+    transform-origin: 210px 145px;
+  }
+  20% {
+    transform: rotate(20deg) translateY(-3px);
+    transform-origin: 210px 145px;
+  }
+  40% {
+    transform: rotate(40deg) translateY(-10px);
+    transform-origin: 210px 145px;
+  }
+  50% {
+    transform: rotate(45deg) translateY(-12px);
+    transform-origin: 210px 145px;
+  }
+  60% {
+    transform: rotate(40deg) translateY(-10px);
+    transform-origin: 210px 145px;
+  }
+  80% {
+    transform: rotate(20deg) translateY(-3px);
+    transform-origin: 210px 145px;
+  }
+  100% {
+    transform: rotate(0deg) translateY(0px);
+    transform-origin: 210px 145px;
+  }
+}
+
+.bird-svg #leftWing {
+  animation: flapLeft 0.5s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+
+.bird-svg #rightWing {
+  animation: flapRight 0.5s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+
+/* Animate wing overlap highlights too */
+.bird-svg #leftWing + path {
+  animation: flapLeft 0.5s ease-in-out infinite;
+}
+
+.bird-svg #rightWing + path {
+  animation: flapRight 0.5s ease-in-out infinite;
 }

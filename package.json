@@ -9,7 +9,10 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@pinecone-database/pinecone": "^6.1.3",
+    "@supabase/supabase-js": "^2.87.1",
     "next": "16.0.8",
+    "openai": "^6.10.0",
     "react": "19.2.1",
     "react-dom": "19.2.1"
   },
