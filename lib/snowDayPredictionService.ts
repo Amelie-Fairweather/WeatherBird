@@ -908,7 +908,7 @@ function getCountySpecificAdjustments(
     if (snowfall >= 6) {
       closingAdjustment += 25;
       factors.push('Chittenden: Overnight threshold (6+") - urban districts but still close at high totals');
-    } else if (snowfall >= 4 && snowfall <= 6 && hoursUntilTarget <= 12) {
+    } else if (snowfall >= 4 && snowfall <= 6 && hoursUntilTargetForCounty <= 12) {
       // 4-6" overnight with active snow = closure
       closingAdjustment += 20;
       delayAdjustment += 15;
@@ -988,7 +988,7 @@ function getCountySpecificAdjustments(
   // 3-5" overnight + wind drift often enough for closure
   // District leaders start reviewing conditions as early as 4 AM
   if (countyLower.includes('lamoille')) {
-    if (snowfall >= 3 && snowfall <= 5 && hoursUntilTarget <= 12) {
+    if (snowfall >= 3 && snowfall <= 5 && hoursUntilTargetForCounty <= 12) {
       // 3-5" overnight + wind drift often enough for closure
       closingAdjustment += 20;
       delayAdjustment += 12;
@@ -1055,7 +1055,7 @@ function getCountySpecificAdjustments(
   // Smaller transportation departments, hill roads make early morning travel riskier
   // Ice layers (not pure snow) = especially bad
   if (countyLower.includes('rutland')) {
-    if (snowfall >= 4 && snowfall <= 7 && hoursUntilTarget <= 12) {
+    if (snowfall >= 4 && snowfall <= 7 && hoursUntilTargetForCounty <= 12) {
       // 4-7" overnight frequently leads to closures
       closingAdjustment += 22;
       delayAdjustment += 15;
