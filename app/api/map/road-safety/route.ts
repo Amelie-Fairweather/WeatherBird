@@ -217,9 +217,9 @@ async function identifyDangerousRoads(
   safetyLevel: 'excellent' | 'good' | 'caution' | 'poor' | 'hazardous';
   safetyScore: number;
   description: string;
-  coordinates?: Array<[number, number]>;
+  coordinates: Array<[number, number]>;
   warning?: string;
-  routeId?: string;
+  routeId: string;
 }>> {
   const allRoads: Array<{
     route: string;
@@ -228,9 +228,9 @@ async function identifyDangerousRoads(
     safetyLevel: 'excellent' | 'good' | 'caution' | 'poor' | 'hazardous';
     safetyScore: number;
     description: string;
-    coordinates?: Array<[number, number]>;
+    coordinates: Array<[number, number]>;
     warning?: string;
-    routeId?: string;
+    routeId: string;
   }> = [];
 
   // Major Vermont highways with approximate coordinates
@@ -335,10 +335,10 @@ async function identifyDangerousRoads(
     safetyLevel: 'excellent' | 'good' | 'caution' | 'poor' | 'hazardous';
     safetyScore: number;
     description: string;
-    coordinates?: Array<[number, number]>;
+    coordinates: Array<[number, number]>;
     warning?: string;
-    routeId?: string;
-  } => road !== null);
+    routeId: string;
+  } => road !== null && road.coordinates !== undefined);
   
   // Add all scored roads to allRoads array
   allRoads.push(...scoredRoads);
