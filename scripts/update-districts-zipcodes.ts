@@ -69,7 +69,7 @@ async function updateDistrictsZipCodes() {
       const newZipsSet = new Set(uniqueZipCodes);
       
       if (currentZips.length === uniqueZipCodes.length && 
-          currentZips.every(zip => newZipsSet.has(zip))) {
+          currentZips.every((zip: string) => newZipsSet.has(zip))) {
         console.log(`✓ ${district.district_name}: Already has all zip codes (${currentZips.length})`);
         continue;
       }

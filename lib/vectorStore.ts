@@ -4,7 +4,7 @@
  */
 
 import { Pinecone } from '@pinecone-database/pinecone';
-import { createEmbedding } from './embeddingsService';
+import { createEmbedding, createEmbeddings } from './embeddingsService';
 
 // Initialize Pinecone client
 let pineconeClient: Pinecone | null = null;
@@ -111,7 +111,7 @@ export async function addDocuments(
     
     // Create embeddings for all documents
     const texts = documents.map(doc => doc.text);
-    const embeddings = await createEmbedding(texts);
+    const embeddings = await createEmbeddings(texts);
     
     // Prepare vectors for upsert
     const vectors = documents.map((doc, i) => ({

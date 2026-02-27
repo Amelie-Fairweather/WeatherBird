@@ -144,8 +144,8 @@ export function parseVTransLaneClosureXML(xmlText: string): VTransLaneClosure[] 
       
       // Check if lanes are blocked
       const hasBlockedLanes = closureContent.includes('isBlocked="true"') || 
-                              getId('affectedLanesDescription')?.toLowerCase().includes('closed') ||
-                              getId('affectedLanesDescription')?.toLowerCase().includes('blocked');
+                              (getId('affectedLanesDescription')?.toLowerCase().includes('closed') ?? false) ||
+                              (getId('affectedLanesDescription')?.toLowerCase().includes('blocked') ?? false);
       
       // Parse days closed
       const daysClosedMatch = closureContent.match(/<daysClosed[^>]*>([\s\S]*?)<\/daysClosed>/);

@@ -23,7 +23,7 @@ export async function POST(request: Request) {
     return NextResponse.json({
       success: true,
       closuresFound: closures.length,
-      roadConditions: roadConditions.length,
+      roadConditionsCount: roadConditions.length,
       closures: closures.slice(0, 10), // Return first 10 for preview
       roadConditions: roadConditions,
       timestamp: new Date().toISOString(),

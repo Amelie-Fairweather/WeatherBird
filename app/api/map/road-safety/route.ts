@@ -259,7 +259,17 @@ async function identifyDangerousRoads(
 
   // Process ALL road conditions and assign safety levels using detailed algorithm
   // Use Promise.all to handle async detailed scoring
-  const roadScoringPromises = roadConditions.map(async (condition) => {
+  const roadScoringPromises: Promise<{
+    route: string;
+    condition: 'clear' | 'wet' | 'snow-covered' | 'ice' | 'closed' | 'unknown';
+    severity: 'low' | 'moderate' | 'high' | 'extreme';
+    safetyLevel: 'excellent' | 'good' | 'caution' | 'poor' | 'hazardous';
+    safetyScore: number;
+    description: string;
+    coordinates: Array<[number, number]>;
+    warning?: string;
+    routeId: string;
+  } | null>[] = roadConditions.map(async (condition) => {
     const routeName = condition.route || 'Unknown Route';
     
     // Use detailed scoring algorithm that considers multiple factors
@@ -328,7 +338,7 @@ async function identifyDangerousRoads(
   
   // Wait for all async scoring operations to complete and filter out nulls
   const allScoredRoads = await Promise.all(roadScoringPromises);
-  const scoredRoads = allScoredRoads.filter((road): road is {
+  type ScoredRoad = {
     route: string;
     condition: 'clear' | 'wet' | 'snow-covered' | 'ice' | 'closed' | 'unknown';
     severity: 'low' | 'moderate' | 'high' | 'extreme';
@@ -338,7 +348,10 @@ async function identifyDangerousRoads(
     coordinates: Array<[number, number]>;
     warning?: string;
     routeId: string;
-  } => road !== null && road.coordinates !== undefined);
+  };
+  const scoredRoads = allScoredRoads.filter((road): road is ScoredRoad => 
+    road !== null && road.coordinates !== undefined
+  );
   
   // Add all scored roads to allRoads array
   allRoads.push(...scoredRoads);

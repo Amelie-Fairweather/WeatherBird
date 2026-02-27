@@ -25,7 +25,7 @@ export async function POST(request: Request) {
     return NextResponse.json({
       success: true,
       stationsFound: stations.length,
-      roadConditions: roadConditions.length,
+      roadConditionsCount: roadConditions.length,
       stations: stations.slice(0, 10), // Return first 10 for preview
       roadConditions: roadConditions,
       timestamp: new Date().toISOString(),
@@ -61,7 +61,7 @@ export async function GET(request: Request) {
     return NextResponse.json({
       success: true,
       stationsFound: stations.length,
-      roadConditions: roadConditions.length,
+      roadConditionsCount: roadConditions.length,
       stations: stations.slice(0, 10),
       roadConditions: roadConditions,
       timestamp: new Date().toISOString(),
