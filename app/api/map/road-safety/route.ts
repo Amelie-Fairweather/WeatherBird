@@ -212,7 +212,7 @@ async function identifyDangerousRoads(
   districtSafetyData: any[]
 ): Promise<Array<{
   route: string;
-  condition: string;
+  condition: 'clear' | 'wet' | 'snow-covered' | 'ice' | 'closed' | 'unknown';
   severity: 'low' | 'moderate' | 'high' | 'extreme';
   safetyLevel: 'excellent' | 'good' | 'caution' | 'poor' | 'hazardous';
   safetyScore: number;
@@ -223,7 +223,7 @@ async function identifyDangerousRoads(
 }>> {
   const allRoads: Array<{
     route: string;
-    condition: string;
+    condition: 'clear' | 'wet' | 'snow-covered' | 'ice' | 'closed' | 'unknown';
     severity: 'low' | 'moderate' | 'high' | 'extreme';
     safetyLevel: 'excellent' | 'good' | 'caution' | 'poor' | 'hazardous';
     safetyScore: number;
@@ -330,7 +330,7 @@ async function identifyDangerousRoads(
   const allScoredRoads = await Promise.all(roadScoringPromises);
   const scoredRoads = allScoredRoads.filter((road): road is {
     route: string;
-    condition: string;
+    condition: 'clear' | 'wet' | 'snow-covered' | 'ice' | 'closed' | 'unknown';
     severity: 'low' | 'moderate' | 'high' | 'extreme';
     safetyLevel: 'excellent' | 'good' | 'caution' | 'poor' | 'hazardous';
     safetyScore: number;
