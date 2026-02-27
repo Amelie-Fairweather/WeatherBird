@@ -30,12 +30,6 @@ export default function EmergencyPage() {
           >
             EMERGENCY
           </Link>
-          <Link 
-            href="/plows"
-            className="px-4 py-2 bg-[var(--neutralBlueLight)] text-white rounded-lg hover:bg-[var(--neutralBlue)] transition-colors font-cormorant font-bold"
-          >
-            PLOWS
-          </Link>
         </div>
       </div>
       

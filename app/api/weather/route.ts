@@ -6,7 +6,7 @@ import { supabase } from '@/lib/supabaseClient';
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const location = searchParams.get('location') || 'Vermont';
-  const provider = searchParams.get('provider') as 'nws' | 'weatherstack' | 'visualcrossing' | 'xweather' | 'openweathermap' | 'auto' | null;
+  const provider = searchParams.get('provider') as 'nws' | 'weatherbit' | 'weatherstack' | 'visualcrossing' | 'xweather' | 'openweathermap' | 'auto' | null;
 
   try {
     // Fetch weather data from specified provider or auto-select

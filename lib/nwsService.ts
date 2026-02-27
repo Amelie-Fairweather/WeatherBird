@@ -161,6 +161,88 @@ export async function fetchNWSAlerts(state: string = 'VT'): Promise<any[]> {
   }
 }
 
+/**
+ * Fetch NWS multi-day forecast and return forecast for a specific date
+ */
+export async function fetchNWSForecast(location: string, targetDateStr: string): Promise<{
+  temperature: number;
+  windSpeed: number;
+  description: string;
+  precipitation?: number;
+} | null> {
+  try {
+    // For Vermont, use Burlington coordinates as default
+    // In production, you'd geocode the location first
+    const lat = 44.4759;
+    const lon = -73.2121;
+
+    const gridPoint = await getGridPoint(lat, lon);
+    
+    // Get daily forecast (7 days, 12-hour periods)
+    const forecastResponse = await fetch(gridPoint.forecastUrl, {
+      headers: {
+        'User-Agent': 'WEATHERbird/1.0 (weather safety app, contact@weatherbird.app)',
+        'Accept': 'application/json',
+      },
+    });
+
+    if (!forecastResponse.ok) {
+      throw new Error(`NWS forecast error: ${forecastResponse.statusText}`);
+    }
+
+    const forecastData = await forecastResponse.json();
+    const periods = forecastData.properties?.periods || [];
+    
+    // Find periods that match the target date
+    const targetDate = new Date(targetDateStr + 'T00:00:00');
+    const targetDateOnly = targetDateStr;
+    
+    // NWS periods are 12-hour periods, we need to find the day period
+    // Day periods typically start around 6-8 AM
+    const matchingPeriods = periods.filter((period: any) => {
+      const periodDate = new Date(period.startTime);
+      const periodDateStr = periodDate.toISOString().split('T')[0];
+      return periodDateStr === targetDateOnly && period.isDaytime === true;
+    });
+    
+    if (matchingPeriods.length > 0) {
+      const dayPeriod = matchingPeriods[0];
+      // Convert temperature from F to C
+      const tempC = (dayPeriod.temperature - 32) * 5/9;
+      
+      // Parse wind speed (format: "15 to 20 mph" or "15 mph")
+      let windSpeed = 0;
+      const windMatch = dayPeriod.windSpeed?.match(/(\d+)/);
+      if (windMatch) {
+        const windMph = parseInt(windMatch[1]);
+        windSpeed = windMph * 0.44704; // Convert mph to m/s
+      }
+      
+      return {
+        temperature: tempC,
+        windSpeed: windSpeed,
+        description: dayPeriod.shortForecast || dayPeriod.detailedForecast || '',
+        precipitation: dayPeriod.probabilityOfPrecipitation?.value || 0, // Percentage, not mm
+      };
+    }
+    
+    return null;
+  } catch (error) {
+    console.error(`Error fetching NWS forecast for ${targetDateStr}:`, error);
+    return null;
+  }
+}
+
+
+
+
+
+
+
+
+
+
+
 
 
 

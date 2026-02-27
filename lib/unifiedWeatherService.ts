@@ -1,7 +1,7 @@
 /**
  * Unified Weather Service
  * Tries multiple weather APIs and returns the best available data
- * Priority order: Weatherstack -> Visual Crossing -> OpenWeatherMap -> NWS (free) -> Xweather
+ * Priority order: NWS (government source) -> Weatherbit -> Weatherstack -> Visual Crossing -> OpenWeatherMap -> Xweather
  */
 
 import { fetchNWSCurrentWeather } from './nwsService';
@@ -9,6 +9,7 @@ import { fetchWeatherstackWeather } from './weatherstackService';
 import { fetchVisualCrossingWeather } from './visualCrossingService';
 import { fetchXweatherWeather } from './xweatherService';
 import { fetchWeatherData } from './weatherApi';
+import { fetchWeatherbitWeather } from './weatherbitService';
 
 interface WeatherData {
   temperature: number;
@@ -27,6 +28,7 @@ interface WeatherData {
 export async function fetchWeatherFromMultipleSources(location: string): Promise<WeatherData> {
   // Verify API keys are configured (for logging/debugging)
   const apiKeyStatus = {
+    weatherbit: !!(process.env.WEATHERBIT_API_KEY || 'e4134d65778146a486074dd0431b0ab8'),
     weatherstack: !!process.env.WEATHERSTACK_API_KEY,
     visualCrossing: !!process.env.VISUAL_CROSSING_API_KEY,
     openWeatherMap: !!process.env.WEATHER_API_KEY,
@@ -37,6 +39,7 @@ export async function fetchWeatherFromMultipleSources(location: string): Promise
   if (process.env.NODE_ENV === 'development') {
     console.log('[Weather Service] API Key Status:', {
       NWS: 'configured (no key needed)',
+      Weatherbit: apiKeyStatus.weatherbit ? 'configured' : 'missing WEATHERBIT_API_KEY',
       Weatherstack: apiKeyStatus.weatherstack ? 'configured' : 'missing WEATHERSTACK_API_KEY',
       'Visual Crossing': apiKeyStatus.visualCrossing ? 'configured' : 'missing VISUAL_CROSSING_API_KEY',
       'OpenWeatherMap': apiKeyStatus.openWeatherMap ? 'configured' : 'missing WEATHER_API_KEY',
@@ -46,41 +49,72 @@ export async function fetchWeatherFromMultipleSources(location: string): Promise
 
   const sources = [
     {
+      name: 'NWS',
+      fetch: () => fetchNWSCurrentWeather(location),
+      priority: 1, // PRIMARY: Government source - most reliable and authoritative
+    },
+    {
+      name: 'Weatherbit',
+      fetch: () => fetchWeatherbitWeather(location),
+      priority: 2, // Excellent for forecasts and snow data
+    },
+    {
       name: 'Weatherstack',
       fetch: () => fetchWeatherstackWeather(location),
-      priority: 1, // Primary API - reliable paid service
+      priority: 3, // Secondary validation/backup
     },
     {
       name: 'Visual Crossing',
       fetch: () => fetchVisualCrossingWeather(location),
-      priority: 2, // Secondary API - reliable paid service
+      priority: 4, // Tertiary validation/backup
     },
     {
       name: 'OpenWeatherMap',
       fetch: () => fetchWeatherData(location),
-      priority: 3, // Tertiary API - reliable paid service
-    },
-    {
-      name: 'NWS',
-      fetch: () => fetchNWSCurrentWeather(location),
-      priority: 4, // Free fallback, no API key needed
+      priority: 5, // Additional backup
     },
     {
       name: 'Xweather',
       fetch: () => fetchXweatherWeather(location),
-      priority: 5, // Last resort
+      priority: 6, // Last resort
     },
   ];
 
   // Try sources in priority order
-  // Priority: 1. Weatherstack, 2. Visual Crossing, 3. OpenWeatherMap, 4. NWS (free), 5. Xweather
+  // Priority: 1. NWS (government source - PRIMARY), 2. Weatherbit (excellent forecasts), 3. Weatherstack, 4. Visual Crossing, 5. OpenWeatherMap, 6. Xweather
   const errors: string[] = [];
+  const attemptedSources: string[] = [];
   
+  console.log(`[UnifiedWeather] Attempting to fetch weather for "${location}" from multiple sources...`);
+  
+  // Import validation service
+  const { validateWeatherData } = await import('./weatherDataValidationService');
+
   for (const source of sources) {
     try {
       console.log(`[Weather Service] Attempting to fetch from ${source.name}...`);
       const data = await source.fetch();
-      console.log(`[Weather Service] Successfully fetched from ${source.name}`);
+      
+      // Validate data before accepting it (CRITICAL for government accuracy)
+      const validation = validateWeatherData(data);
+      
+      if (!validation.isValid || validation.confidence < 50) {
+        console.warn(`[Weather Service] ${source.name} data validation failed (confidence: ${validation.confidence}%):`, validation.issues);
+        errors.push(`${source.name}: Validation failed - ${validation.issues.join(', ')}`);
+        continue; // Try next source if validation fails
+      }
+      
+      if (validation.confidence < 80) {
+        console.warn(`[Weather Service] ${source.name} data has lower confidence (${validation.confidence}%):`, validation.recommendations);
+      }
+      
+      console.log(`[Weather Service] Successfully fetched and validated from ${source.name} (confidence: ${validation.confidence}%)`);
+      
+      // Log validation details if confidence is low
+      if (validation.confidence < 80) {
+        console.warn(`[Weather Service] ${source.name} validation warnings:`, validation.recommendations);
+      }
+      
       return {
         ...data,
         source: source.name,
@@ -103,7 +137,7 @@ export async function fetchWeatherFromMultipleSources(location: string): Promise
  */
 export async function fetchWeatherFromProvider(
   location: string,
-  provider: 'nws' | 'weatherstack' | 'visualcrossing' | 'xweather' | 'openweathermap' | 'auto' = 'auto'
+  provider: 'nws' | 'weatherbit' | 'weatherstack' | 'visualcrossing' | 'xweather' | 'openweathermap' | 'auto' = 'auto'
 ): Promise<WeatherData> {
   if (provider === 'auto') {
     return fetchWeatherFromMultipleSources(location);
@@ -140,6 +174,12 @@ export async function fetchWeatherFromProvider(
     case 'openweathermap': {
       const weatherData = await fetchWeatherData(location);
       source = 'OpenWeatherMap';
+      data = { ...weatherData, source };
+      break;
+    }
+    case 'weatherbit': {
+      const weatherData = await fetchWeatherbitWeather(location);
+      source = 'Weatherbit';
       data = { ...weatherData, source };
       break;
     }

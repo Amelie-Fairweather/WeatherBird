@@ -3,6 +3,7 @@
 import "./globals.css";
 import Link from "next/link";
 import { useRef, useEffect, useState } from "react";
+import WeatherAlertsBanner from "@/components/WeatherAlertsBanner";
 
 interface ChatMessage {
   role: 'user' | 'assistant';
@@ -75,12 +76,20 @@ export default function MyComponent() {
     setChatLoading(true);
 
     try {
+      // Send last 6 messages (3 user + 3 assistant = context for conversation flow)
+      const recentHistory = messages.slice(-6).map(msg => ({
+        role: msg.role,
+        content: msg.content,
+        timestamp: msg.timestamp,
+      }));
+
       const response = await fetch('/api/weather/ai/test', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           question: chatInput,
           location: chatLocation,
+          conversationHistory: recentHistory,
         }),
       });
 
@@ -121,6 +130,9 @@ export default function MyComponent() {
 
   return (
     <div className="relative">
+      {/* Weather Alerts Banner - Fixed at top, updates every hour */}
+      <WeatherAlertsBanner location={chatLocation} updateInterval={3600000} />
+      
       {/* Hero Section - Fixed/Parallax */}
       <div 
         ref={heroRef}
@@ -145,7 +157,8 @@ export default function MyComponent() {
         {/* Dark overlay for better text readability */}
         <div className="absolute inset-0 bg-black/40 z-0"></div>
         {/* Navigation Buttons - inside hero section to move with parallax */}
-        <div className="absolute top-0 left-0 w-full z-10" style={{ opacity: imageOpacity }}>
+        {/* Add top padding to account for alerts banner (banner height ~70px) */}
+        <div className="absolute top-0 left-0 w-full z-10" style={{ opacity: imageOpacity, paddingTop: '70px' }}>
           <div className="bg-white w-full px-6 py-2 pb-10">
             <div className="flex items-center justify-center gap-6">
               <Link 
@@ -165,12 +178,6 @@ export default function MyComponent() {
                 className="w-36 h-14 flex items-center justify-center bg-white text-[var(--darkBlue)] transition-colors font-cormorant font-bold text-lg"
               >
                 EMERGENCY
-              </Link>
-              <Link 
-                href="/plows"
-                className="w-36 h-14 flex items-center justify-center bg-white text-[var(--darkBlue)] font-cormorant font-bold text-lg"
-              >
-                PLOWS
               </Link>
             </div>
           </div>
