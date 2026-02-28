@@ -16,7 +16,7 @@ export default function MyComponent() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [chatInput, setChatInput] = useState("");
   const [chatLoading, setChatLoading] = useState(false);
-  const [chatLocation, setChatLocation] = useState("Vermont");
+  const [chatLocation] = useState("Vermont");
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const [scrollY, setScrollY] = useState(0);
   const heroRef = useRef<HTMLDivElement>(null);
@@ -110,7 +110,7 @@ export default function MyComponent() {
         };
         setMessages(prev => [...prev, errorMessage]);
       }
-    } catch (err) {
+    } catch {
       const errorMessage: ChatMessage = {
         role: 'assistant',
         content: 'Error connecting to Maple. Please try again.',
@@ -228,7 +228,7 @@ export default function MyComponent() {
           A brief introduction to our utilities, why and who WeatherBird is
         </div>
         <div className="text-center font-cormorant text-xl pb-10">WeatherBird is a service designed to promote road safety, help mitigate flood damage, and prepare vermont for emergency!</div>
-        <div className="text-center font-cormorant text-xl pb-5 ">Below, is our AI driven weather assitant Maple, she'll help you with everything you need to know immediately:
+        <div className="text-center font-cormorant text-xl pb-5 ">Below, is our AI driven weather assitant Maple, she&apos;ll help you with everything you need to know immediately:
           </div>
           <div className="text-center font-cormorant text-xl pb-10"> snow days, road safety, temperature, and weather a week out!</div>
           <div className="text-center font-cormorant text-xl pb-40"> for more specific details, please visit our other pages, including in depth road and plow data, and flood prediction</div>
@@ -253,7 +253,7 @@ export default function MyComponent() {
           <div className="h-96 overflow-y-auto p-6 bg-white">
             {messages.length === 0 ? (
               <div className="text-center text-gray-600 mt-20">
-                <p className="text-3xl font-caveat text-[var(--darkBlue)]">Hi! I'm Maple, your weather assistant.</p>
+                <p className="text-3xl font-caveat text-[var(--darkBlue)]">Hi! I&apos;m Maple, your weather assistant.</p>
                 <p className="mt-3 text-lg font-cormorant text-gray-600">Ask me about the weather in {chatLocation}!</p>
               </div>
             ) : (

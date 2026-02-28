@@ -7,9 +7,8 @@
 import { NextResponse } from 'next/server';
 import { getAllDistricts } from '@/lib/schoolDistrictService';
 import { calculateDistrictRoadSafety } from '@/lib/districtRoadSafetyService';
-import { calculateRoadSafetyRating, PlowLocation } from '@/lib/plowAnalysisService';
+import { PlowLocation, calculateRoadSafetyRating } from '@/lib/plowAnalysisService';
 import { fetchAllRoadConditions, RoadCondition } from '@/lib/roadDataService';
-import { calculateRoadSafetyAssessment } from '@/lib/roadSafetyAssessmentService';
 import { calculateDetailedRoadSafetyScore } from '@/lib/detailedRoadSafetyScoring';
 import { fetchWeatherFromProvider } from '@/lib/unifiedWeatherService';
 
@@ -22,13 +21,12 @@ export async function GET(request: Request) {
     const districts = await getAllDistricts();
     
     // Optionally fetch plow data if requested
-    let plows: PlowLocation[] = [];
+    const plows: PlowLocation[] = [];
     if (includePlows) {
       try {
         // Try to get plow data from the plows API
         const plowsResponse = await fetch(`${request.url.split('/api/')[0]}/api/plows/analyze?route=Vermont`);
         if (plowsResponse.ok) {
-          const plowsData = await plowsResponse.json();
           // If we get plow data back, extract locations
           // Note: This depends on the plows API actually returning data
           // For now, we'll use empty array and it will work when plow data becomes available
@@ -207,9 +205,25 @@ function calculateDistance(lat1: number, lon1: number, lat2: number, lon2: numbe
  * Identify all roads with safety ratings (not just dangerous ones)
  * Categorizes roads by safety level: excellent, good, caution, poor, hazardous
  */
+interface DistrictSafetyData {
+  districtId?: number;
+  districtName?: string;
+  safetyRating?: {
+    rating?: string;
+    score?: number;
+  };
+  latitude?: number;
+  longitude?: number;
+}
+
 async function identifyDangerousRoads(
   roadConditions: RoadCondition[],
-  districtSafetyData: any[]
+  _districtSafetyData: Array<{
+    districtId: number;
+    districtName: string;
+    safetyRating: { rating: string; score: number } | null;
+    [key: string]: unknown;
+  }>
 ): Promise<Array<{
   route: string;
   condition: 'clear' | 'wet' | 'snow-covered' | 'ice' | 'closed' | 'unknown';
@@ -359,22 +373,23 @@ async function identifyDangerousRoads(
   // Also identify roads based on district safety ratings
   // Connect districts with caution, poor, or hazardous ratings
   // CAUTION ZONES are districts with ratings of 'caution' (scores 40-59)
-  const ratedDistricts = districtSafetyData.filter(d => 
-    d.safetyRating && 
-    d.safetyRating.rating && 
-    d.latitude && 
-    d.longitude &&
-    d.districtId
-  );
+  // Note: ratedDistricts is kept for potential future use but currently not used
+  // const ratedDistricts = districtSafetyData.filter(d => 
+  //   d.safetyRating && 
+  //   d.safetyRating.rating && 
+  //   d.latitude && 
+  //   d.longitude &&
+  //   d.districtId
+  // );
 
-  // Group districts by safety level
+  // Group districts by safety level (commented out - not currently used but kept for future use)
   // CAUTION ZONES: Districts with scores 40-59 (moderate risk - requires attention)
-  const cautionDistricts = ratedDistricts.filter(d => 
-    d.safetyRating?.rating === 'caution' || 
-    (d.safetyRating?.score !== undefined && d.safetyRating.score >= 40 && d.safetyRating.score < 60)
-  );
-  const poorDistricts = ratedDistricts.filter(d => d.safetyRating?.rating === 'poor');
-  const hazardousDistricts = ratedDistricts.filter(d => d.safetyRating?.rating === 'hazardous');
+  // const cautionDistricts = ratedDistricts.filter(d => 
+  //   d.safetyRating?.rating === 'caution' || 
+  //   (d.safetyRating?.score !== undefined && d.safetyRating.score >= 40 && d.safetyRating.score < 60)
+  // );
+  // const poorDistricts = ratedDistricts.filter(d => d.safetyRating?.rating === 'poor');
+  // const hazardousDistricts = ratedDistricts.filter(d => d.safetyRating?.rating === 'hazardous');
 
   // REMOVED: District connection lines (bright red dashed lines) - user requested removal
   // Only show actual roads with real conditions, not district-to-district connections

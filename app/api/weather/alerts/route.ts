@@ -17,13 +17,13 @@ interface UnifiedAlert {
 /**
  * Convert NWS alert format to unified alert format
  */
-function convertNWSAlertToUnified(nwsAlert: any): UnifiedAlert {
+function convertNWSAlertToUnified(nwsAlert: { id?: string; properties?: Record<string, unknown> }): UnifiedAlert {
   const properties = nwsAlert.properties || {};
   
   // Map NWS severity/urgency to unified severity
   let severity: 'Minor' | 'Moderate' | 'Severe' | 'Extreme' = 'Moderate';
-  const nwsSeverity = properties.severity?.toLowerCase() || '';
-  const nwsUrgency = properties.urgency?.toLowerCase() || '';
+  const nwsSeverity = (typeof properties.severity === 'string' ? properties.severity : '').toLowerCase();
+  const nwsUrgency = (typeof properties.urgency === 'string' ? properties.urgency : '').toLowerCase();
   
   if (nwsSeverity === 'extreme' || nwsUrgency === 'immediate') {
     severity = 'Extreme';
@@ -36,14 +36,14 @@ function convertNWSAlertToUnified(nwsAlert: any): UnifiedAlert {
   }
   
   return {
-    id: properties.id || nwsAlert.id || `nws-${Date.now()}-${Math.random()}`,
-    name: properties.event || 'Weather Alert',
-    type: properties.event || properties.eventType || 'Unknown',
+    id: (typeof properties.id === 'string' ? properties.id : undefined) || nwsAlert.id || `nws-${Date.now()}-${Math.random()}`,
+    name: (typeof properties.event === 'string' ? properties.event : 'Weather Alert'),
+    type: (typeof properties.event === 'string' ? properties.event : undefined) || (typeof properties.eventType === 'string' ? properties.eventType : undefined) || 'Unknown',
     severity,
-    title: properties.headline || properties.event || 'Weather Alert',
-    body: properties.description || properties.summary || '',
-    expiresISO: properties.expires,
-    issueTimeISO: properties.sent || properties.onset,
+    title: (typeof properties.headline === 'string' ? properties.headline : undefined) || (typeof properties.event === 'string' ? properties.event : undefined) || 'Weather Alert',
+    body: (typeof properties.description === 'string' ? properties.description : undefined) || (typeof properties.summary === 'string' ? properties.summary : undefined) || '',
+    expiresISO: typeof properties.expires === 'string' ? properties.expires : undefined,
+    issueTimeISO: (typeof properties.sent === 'string' ? properties.sent : undefined) || (typeof properties.onset === 'string' ? properties.onset : undefined),
     source: 'NWS',
   };
 }

@@ -1,4 +1,4 @@
-import { predictSnowDay, predictSnowDaysForWeek, getProbabilityCategory, MultiDaySnowDayPredictions } from '@/lib/snowDayPredictionService';
+import { predictSnowDay, predictSnowDaysForWeek, getProbabilityCategory } from '@/lib/snowDayPredictionService';
 import { NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabaseClient';
 

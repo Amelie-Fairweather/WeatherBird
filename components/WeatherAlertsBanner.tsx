@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 
 interface WeatherAlert {
   id: string;
@@ -27,7 +27,7 @@ export default function WeatherAlertsBanner({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const fetchAlerts = async () => {
+  const fetchAlerts = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
@@ -59,12 +59,12 @@ export default function WeatherAlertsBanner({
     } finally {
       setLoading(false);
     }
-  };
+  }, [location]);
 
   // Initial fetch
   useEffect(() => {
     fetchAlerts();
-  }, [location]);
+  }, [fetchAlerts]);
 
   // Set up interval to refresh alerts hourly
   useEffect(() => {
@@ -73,7 +73,7 @@ export default function WeatherAlertsBanner({
     }, updateInterval);
 
     return () => clearInterval(interval);
-  }, [location, updateInterval]);
+  }, [fetchAlerts, updateInterval]);
 
   // Show loading state briefly, then check for alerts
   // Don't render if no alerts after loading completes

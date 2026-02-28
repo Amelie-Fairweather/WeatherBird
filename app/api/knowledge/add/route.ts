@@ -25,7 +25,7 @@ export async function POST(request: Request) {
     }
 
     // Validate and prepare documents
-    const validDocuments: Document[] = documents.map((doc: any, index: number) => {
+    const validDocuments: Document[] = documents.map((doc: { id?: string; text: string; metadata?: Record<string, unknown> }, index: number) => {
       if (!doc.text) {
         throw new Error(`Document at index ${index} is missing required field: text`);
       }

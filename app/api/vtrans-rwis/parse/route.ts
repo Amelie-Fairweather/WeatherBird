@@ -42,7 +42,7 @@ export async function POST(request: Request) {
   }
 }
 
-export async function GET(request: Request) {
+export async function GET() {
   try {
     // Try to fetch from endpoints
     const stations = await fetchVTransRWISData();

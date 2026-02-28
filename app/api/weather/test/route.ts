@@ -1,5 +1,4 @@
 import { NextResponse } from 'next/server';
-import { fetchWeatherData } from '@/lib/weatherApi';
 // Diagnostic endpoint to check configuration
 export async function GET() {
   const checks = {

@@ -71,18 +71,18 @@ export async function POST(request: Request) {
     }
 
     // Validate plow data structure
-    const validPlows: PlowLocation[] = plows.map((plow: any, index: number) => {
+    const validPlows: PlowLocation[] = plows.map((plow: { id?: string; latitude?: number; longitude?: number; route?: string; status?: string; direction?: number; timestamp?: string }, index: number) => {
       if (!plow.latitude || !plow.longitude) {
         throw new Error(`Plow at index ${index} is missing latitude or longitude`);
       }
       return {
         id: plow.id || `plow-${index}`,
-        latitude: parseFloat(plow.latitude),
-        longitude: parseFloat(plow.longitude),
+        latitude: typeof plow.latitude === 'number' ? plow.latitude : parseFloat(String(plow.latitude)),
+        longitude: typeof plow.longitude === 'number' ? plow.longitude : parseFloat(String(plow.longitude)),
         route: plow.route,
         direction: plow.direction,
         timestamp: plow.timestamp || new Date().toISOString(),
-        status: plow.status || 'active',
+        status: (plow.status === 'active' || plow.status === 'inactive') ? plow.status : 'active' as 'active' | 'inactive',
       };
     });
 

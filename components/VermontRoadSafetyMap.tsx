@@ -1,13 +1,15 @@
 "use client";
 
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState } from 'react';
 import dynamic from 'next/dynamic';
 import 'leaflet/dist/leaflet.css';
 
 // Fix for Leaflet icon issues in Next.js
 // This is required because Leaflet's default icons don't work well with Next.js SSR
 if (typeof window !== 'undefined') {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
   const L = require('leaflet');
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   delete (L.Icon.Default.prototype as any)._getIconUrl;
   L.Icon.Default.mergeOptions({
     iconRetinaUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon-2x.png',
@@ -25,8 +27,10 @@ const CircleMarker = dynamic(() => import('react-leaflet').then(mod => mod.Circl
 const Polyline = dynamic(() => import('react-leaflet').then(mod => mod.Polyline), { ssr: false });
 
 // Import L for creating custom icons
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 let L: any;
 if (typeof window !== 'undefined') {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
   L = require('leaflet');
 }
 
@@ -43,7 +47,7 @@ interface RoadSafetyData {
     score: number;
     conditions: string[];
     warnings: string[];
-    factors?: any;
+    factors?: Record<string, unknown>;
     confidence?: number;
   } | null;
   plowCoverage?: {
@@ -135,7 +139,31 @@ function RoadSafetyPolyline({ road, color, weight, opacity }: {
   weight: number;
   opacity: number;
 }) {
-  const [assessment, setAssessment] = useState<any>(null);
+  interface RoadAssessment {
+    route: string;
+    rating: string;
+    score: number;
+    conditions: string[];
+    warnings: string[];
+    severity?: string;
+    safetyRating?: string;
+    safetyScore?: number;
+    criticalWarnings?: string[];
+    temperatureF?: number;
+    condition?: string;
+    roadCondition?: string;
+    factors?: {
+      temperatureRisk?: { level: string; score: number };
+      precipitationRisk?: { level: string; score: number };
+      roadSurfaceRisk?: { level: string; score: number };
+      blackIceRisk?: { level: string; score: number; probability: number };
+    };
+    recommendations?: Array<{ priority: string; text: string; action?: string; reasoning?: string }>;
+    travelAdvice?: { recommended: boolean; urgency: string; estimatedDifficulty: string };
+    dataQuality?: { confidence: number; dataSources: string[] };
+    lastUpdated?: string;
+  }
+  const [assessment, setAssessment] = useState<RoadAssessment | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   
@@ -235,7 +263,7 @@ function BasicRoadInfo({ road }: { road: DangerousRoad }) {
   };
   
   // Determine safety rating description
-  const getSafetyDescription = (score: number, level: string) => {
+  const getSafetyDescription = (score: number, _level: string) => {
     if (score >= 80) return 'Safe for normal travel';
     if (score >= 60) return 'Safe with normal caution';
     if (score >= 40) return 'Caution advised - moderate risk';
@@ -288,7 +316,31 @@ function BasicRoadInfo({ road }: { road: DangerousRoad }) {
   );
 }
 
-function DetailedRoadAssessment({ assessment }: { assessment: any }) {
+interface DetailedAssessment {
+  route: string;
+  rating: string;
+  score: number;
+  conditions: string[];
+  warnings: string[];
+  severity?: string;
+  safetyRating?: string;
+  safetyScore?: number;
+  criticalWarnings?: string[];
+  temperatureF?: number;
+  condition?: string;
+  roadCondition?: string;
+  factors?: {
+    temperatureRisk?: { level: string; score: number };
+    precipitationRisk?: { level: string; score: number };
+    roadSurfaceRisk?: { level: string; score: number };
+    blackIceRisk?: { level: string; score: number; probability: number };
+  };
+  recommendations?: Array<{ priority: string; text: string; action?: string; reasoning?: string }>;
+  travelAdvice?: { recommended: boolean; urgency: string; estimatedDifficulty: string };
+  dataQuality?: { confidence: number; dataSources: string[] };
+  lastUpdated?: string;
+}
+function DetailedRoadAssessment({ assessment }: { assessment: DetailedAssessment }) {
   const getRatingColor = (rating: string) => {
     switch (rating) {
       case 'excellent': return 'text-green-700';
@@ -317,14 +369,14 @@ function DetailedRoadAssessment({ assessment }: { assessment: any }) {
           {assessment.route}
         </h4>
         {/* PROMINENT SAFETY SCORE DISPLAY */}
-        <div className={`inline-block px-4 py-3 rounded-lg border-3 mb-3 shadow-md w-full text-center ${getSeverityBg(assessment.severity)}`}>
+        <div className={`inline-block px-4 py-3 rounded-lg border-3 mb-3 shadow-md w-full text-center ${getSeverityBg(assessment.severity || assessment.rating || 'moderate')}`}>
           <div className="text-center">
             <div className="text-xs font-semibold font-cormorant text-gray-600 mb-1 uppercase tracking-wide">SAFETY SCORE</div>
-            <div className={`text-4xl font-bold font-cormorant ${getRatingColor(assessment.safetyRating)} mb-1`}>
-              {assessment.safetyScore}/100
+            <div className={`text-4xl font-bold font-cormorant ${getRatingColor(assessment.safetyRating || assessment.rating || 'good')} mb-1`}>
+              {assessment.safetyScore || assessment.score}/100
             </div>
-            <div className={`text-base font-bold font-cormorant ${getRatingColor(assessment.safetyRating)}`}>
-              {assessment.safetyRating.toUpperCase()}
+            <div className={`text-base font-bold font-cormorant ${getRatingColor(assessment.safetyRating || assessment.rating || 'good')}`}>
+              {(assessment.safetyRating || assessment.rating || 'good').toUpperCase()}
             </div>
           </div>
         </div>
@@ -346,9 +398,9 @@ function DetailedRoadAssessment({ assessment }: { assessment: any }) {
       <div className="border-t pt-2">
         <p className="text-sm font-semibold font-cormorant text-gray-700 mb-1">Current Conditions:</p>
         <p className="text-sm text-gray-800 font-cormorant">
-          Temperature: <span className="font-bold">{assessment.temperatureF}°F</span> | 
-          Condition: <span className="font-bold">{assessment.condition}</span> | 
-          Road: <span className="font-bold">{assessment.roadCondition}</span>
+          {assessment.temperatureF && <>Temperature: <span className="font-bold">{assessment.temperatureF}°F</span> | </>}
+          {assessment.condition && <>Condition: <span className="font-bold">{assessment.condition}</span> | </>}
+          {assessment.roadCondition && <>Road: <span className="font-bold">{assessment.roadCondition}</span></>}
         </p>
       </div>
       
@@ -356,30 +408,38 @@ function DetailedRoadAssessment({ assessment }: { assessment: any }) {
       <div className="border-t pt-2">
         <p className="text-sm font-semibold font-cormorant text-gray-700 mb-2">Risk Factors:</p>
         <div className="space-y-2 text-xs">
-          <div className="flex justify-between">
-            <span className="font-cormorant">Temperature Risk:</span>
-            <span className={`font-semibold font-cormorant ${assessment.factors.temperatureRisk.level === 'extreme' || assessment.factors.temperatureRisk.level === 'high' ? 'text-red-700' : 'text-gray-700'}`}>
-              {assessment.factors.temperatureRisk.level.toUpperCase()} (-{assessment.factors.temperatureRisk.score}pts)
-            </span>
-          </div>
-          <div className="flex justify-between">
-            <span className="font-cormorant">Precipitation:</span>
-            <span className={`font-semibold font-cormorant ${assessment.factors.precipitationRisk.level === 'extreme' || assessment.factors.precipitationRisk.level === 'high' ? 'text-red-700' : 'text-gray-700'}`}>
-              {assessment.factors.precipitationRisk.level.toUpperCase()} (-{assessment.factors.precipitationRisk.score}pts)
-            </span>
-          </div>
-          <div className="flex justify-between">
-            <span className="font-cormorant">Road Surface:</span>
-            <span className={`font-semibold font-cormorant ${assessment.factors.roadSurfaceRisk.level === 'extreme' || assessment.factors.roadSurfaceRisk.level === 'high' ? 'text-red-700' : 'text-gray-700'}`}>
-              {assessment.factors.roadSurfaceRisk.level.toUpperCase()} (-{assessment.factors.roadSurfaceRisk.score}pts)
-            </span>
-          </div>
-          <div className="flex justify-between">
-            <span className="font-cormorant">Black Ice Risk:</span>
-            <span className={`font-semibold font-cormorant ${assessment.factors.blackIceRisk.level === 'extreme' || assessment.factors.blackIceRisk.level === 'high' ? 'text-red-700' : 'text-gray-700'}`}>
-              {assessment.factors.blackIceRisk.probability}% - {assessment.factors.blackIceRisk.level.toUpperCase()} (-{assessment.factors.blackIceRisk.score}pts)
-            </span>
-          </div>
+          {assessment.factors?.temperatureRisk && (
+            <div className="flex justify-between">
+              <span className="font-cormorant">Temperature Risk:</span>
+              <span className={`font-semibold font-cormorant ${assessment.factors.temperatureRisk.level === 'extreme' || assessment.factors.temperatureRisk.level === 'high' ? 'text-red-700' : 'text-gray-700'}`}>
+                {assessment.factors.temperatureRisk.level.toUpperCase()} (-{assessment.factors.temperatureRisk.score}pts)
+              </span>
+            </div>
+          )}
+          {assessment.factors?.precipitationRisk && (
+            <div className="flex justify-between">
+              <span className="font-cormorant">Precipitation:</span>
+              <span className={`font-semibold font-cormorant ${assessment.factors.precipitationRisk.level === 'extreme' || assessment.factors.precipitationRisk.level === 'high' ? 'text-red-700' : 'text-gray-700'}`}>
+                {assessment.factors.precipitationRisk.level.toUpperCase()} (-{assessment.factors.precipitationRisk.score}pts)
+              </span>
+            </div>
+          )}
+          {assessment.factors?.roadSurfaceRisk && (
+            <div className="flex justify-between">
+              <span className="font-cormorant">Road Surface:</span>
+              <span className={`font-semibold font-cormorant ${assessment.factors.roadSurfaceRisk.level === 'extreme' || assessment.factors.roadSurfaceRisk.level === 'high' ? 'text-red-700' : 'text-gray-700'}`}>
+                {assessment.factors.roadSurfaceRisk.level.toUpperCase()} (-{assessment.factors.roadSurfaceRisk.score}pts)
+              </span>
+            </div>
+          )}
+          {assessment.factors?.blackIceRisk && (
+            <div className="flex justify-between">
+              <span className="font-cormorant">Black Ice Risk:</span>
+              <span className={`font-semibold font-cormorant ${assessment.factors.blackIceRisk.level === 'extreme' || assessment.factors.blackIceRisk.level === 'high' ? 'text-red-700' : 'text-gray-700'}`}>
+                {assessment.factors.blackIceRisk.probability}% - {assessment.factors.blackIceRisk.level.toUpperCase()} (-{assessment.factors.blackIceRisk.score}pts)
+              </span>
+            </div>
+          )}
         </div>
       </div>
       
@@ -389,14 +449,15 @@ function DetailedRoadAssessment({ assessment }: { assessment: any }) {
           <p className="text-sm font-semibold font-cormorant text-gray-700 mb-2">Recommendations:</p>
           <div className="space-y-1 max-h-48 overflow-y-auto">
             {assessment.recommendations
-              .sort((a: any, b: any) => {
+              .sort((a: { priority: string }, b: { priority: string }) => {
                 const priorityOrder: Record<string, number> = { critical: 0, high: 1, moderate: 2, low: 3 };
                 return priorityOrder[a.priority] - priorityOrder[b.priority];
               })
-              .map((rec: any, idx: number) => (
+              .map((rec: { priority: string; text?: string; action?: string; reasoning?: string }, idx: number) => (
                 <div key={idx} className={`p-2 rounded text-xs ${rec.priority === 'critical' ? 'bg-red-50 border-l-2 border-red-500' : rec.priority === 'high' ? 'bg-red-50 border-l-2 border-red-500' : 'bg-gray-50'}`}>
-                  <p className="font-semibold font-cormorant text-gray-800">{rec.action}</p>
-                  <p className="text-gray-600 font-cormorant mt-1">{rec.reasoning}</p>
+                  {rec.action && <p className="font-semibold font-cormorant text-gray-800">{rec.action}</p>}
+                  {rec.reasoning && <p className="text-gray-600 font-cormorant mt-1">{rec.reasoning}</p>}
+                  {rec.text && <p className="text-gray-600 font-cormorant mt-1">{rec.text}</p>}
                 </div>
               ))}
           </div>
@@ -404,22 +465,26 @@ function DetailedRoadAssessment({ assessment }: { assessment: any }) {
       )}
       
       {/* Travel Advice */}
-      <div className={`border-t pt-2 ${assessment.travelAdvice.recommended ? 'bg-green-50' : 'bg-red-50'} p-2 rounded`}>
-        <p className="text-sm font-semibold font-cormorant mb-1">
-          Travel Recommendation: {assessment.travelAdvice.recommended ? '✅ RECOMMENDED' : '❌ NOT RECOMMENDED'}
-        </p>
-        <p className="text-xs text-gray-700 font-cormorant">
-          Urgency: {assessment.travelAdvice.urgency.replace('_', ' ').toUpperCase()} | 
-          Difficulty: {assessment.travelAdvice.estimatedDifficulty}
-        </p>
-      </div>
+      {assessment.travelAdvice && (
+        <div className={`border-t pt-2 ${assessment.travelAdvice.recommended ? 'bg-green-50' : 'bg-red-50'} p-2 rounded`}>
+          <p className="text-sm font-semibold font-cormorant mb-1">
+            Travel Recommendation: {assessment.travelAdvice.recommended ? '✅ RECOMMENDED' : '❌ NOT RECOMMENDED'}
+          </p>
+          <p className="text-xs text-gray-700 font-cormorant">
+            Urgency: {assessment.travelAdvice.urgency.replace('_', ' ').toUpperCase()} | 
+            Difficulty: {assessment.travelAdvice.estimatedDifficulty}
+          </p>
+        </div>
+      )}
       
       {/* Data Quality */}
-      <div className="border-t pt-2 text-xs text-gray-500 font-cormorant">
-        <p>Data Confidence: {assessment.dataQuality.confidence}%</p>
-        <p>Sources: {assessment.dataQuality.dataSources.join(', ')}</p>
-        <p>Last Updated: {new Date(assessment.lastUpdated).toLocaleString()}</p>
-      </div>
+      {assessment.dataQuality && (
+        <div className="border-t pt-2 text-xs text-gray-500 font-cormorant">
+          <p>Data Confidence: {assessment.dataQuality.confidence}%</p>
+          <p>Sources: {assessment.dataQuality.dataSources.join(', ')}</p>
+          {assessment.lastUpdated && <p>Last Updated: {new Date(assessment.lastUpdated).toLocaleString()}</p>}
+        </div>
+      )}
     </div>
   );
 }
@@ -632,12 +697,20 @@ export default function VermontRoadSafetyMap() {
                     {region.safetyRating && (
                       <div className="mt-3 pt-3 border-t border-gray-300">
                         <p className="text-xs font-semibold font-cormorant text-gray-700 mb-1">Detailed Assessment:</p>
-                        <p className="text-xs text-gray-600 font-cormorant mb-1">
-                          Temperature Impact: -{region.safetyRating.factors?.temperature?.impact || 0}pts
-                        </p>
-                        <p className="text-xs text-gray-600 font-cormorant mb-1">
-                          Road Conditions Impact: -{region.safetyRating.factors?.roadConditions?.impact || 0}pts
-                        </p>
+                        {region.safetyRating.factors && typeof region.safetyRating.factors === 'object' && (
+                          <>
+                            {region.safetyRating.factors.temperature && (
+                              <p className="text-xs text-gray-600 font-cormorant mb-1">
+                                Temperature Impact: -{(region.safetyRating.factors.temperature as { impact?: number }).impact || 0}pts
+                              </p>
+                            )}
+                            {region.safetyRating.factors.roadConditions && (
+                              <p className="text-xs text-gray-600 font-cormorant mb-1">
+                                Road Conditions Impact: -{(region.safetyRating.factors.roadConditions as { impact?: number }).impact || 0}pts
+                              </p>
+                            )}
+                          </>
+                        )}
                         <p className="text-xs text-gray-600 font-cormorant">
                           Confidence: {region.safetyRating.confidence || 85}%
                         </p>

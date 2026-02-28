@@ -3,9 +3,7 @@ import { fetchWeatherFromProvider } from '@/lib/unifiedWeatherService';
 import { getHistoricalWeatherData, WeatherDataPoint } from '@/lib/supabaseQueries';
 import { fetchAllRoadConditions, formatRoadConditionsForAI } from '@/lib/roadDataService';
 import { getAllActiveRoadConditions, formatRoadConditionsForAI as formatVTransRoadConditions } from '@/lib/vtransService';
-import { calculateRoadSafetyRating, formatPlowAnalysisForAI, analyzePlowDistribution } from '@/lib/plowAnalysisService';
 import { calculateDistrictRoadSafety, formatRoadSafetyRatingForAI } from '@/lib/districtRoadSafetyService';
-import { getDistrictByZipCode, getDistrictByName } from '@/lib/schoolDistrictService';
 import { predictSnowDay, predictSnowDaysForWeek, SnowDayPrediction, MultiDaySnowDayPredictions } from '@/lib/snowDayPredictionService';
 import { searchSimilar } from '@/lib/vectorStore';
 import { calculateRouteSafety, RouteSafetyAssessment } from '@/lib/routeSafetyService';
@@ -99,8 +97,6 @@ function isWeatherRelated(question: string): boolean {
 
 // Extract destination location from "drive to X" questions
 function extractDestinationFromQuestion(question: string): string | null {
-  const lowerQuestion = question.toLowerCase();
-  
   // Patterns like "drive to Burlington", "drive to X", "let my kid drive to X"
   const driveToMatch = question.match(/drive to\s+([a-z\s]+?)(?:\?|$|\.|,|from|with)/i);
   if (driveToMatch && driveToMatch[1]) {
@@ -118,8 +114,6 @@ function extractDestinationFromQuestion(question: string): string | null {
 
 // Extract origin location from questions like "from X to Y"
 function extractOriginFromQuestion(question: string): string | null {
-  const lowerQuestion = question.toLowerCase();
-  
   // Pattern "from X to Y" or "from X"
   const fromMatch = question.match(/from\s+([a-z\s]+?)(?:\s+to|\?|$|\.|,)/i);
   if (fromMatch && fromMatch[1]) {
@@ -173,12 +167,22 @@ export async function POST(request: Request) {
     let historicalData: WeatherDataPoint[] = [];
     let combinedRoadConditionsText = '';
     let knowledgeContext = '';
-    let plowAnalysis = '';
+    const plowAnalysis = '';
       let districtRoadSafety = '';
       let snowDayPrediction: SnowDayPrediction | null = null;
       let multiDaySnowDayPredictions: MultiDaySnowDayPredictions | null = null;
       let routeSafety: RouteSafetyAssessment | null = null;
-      let weatherAlerts: any[] = [];
+      let weatherAlerts: Array<{
+        id: string;
+        name: string;
+        type: string;
+        severity: 'Minor' | 'Moderate' | 'Severe' | 'Extreme';
+        title: string;
+        body: string;
+        expiresISO?: string;
+        issueTimeISO?: string;
+        source?: 'Xweather' | 'NWS';
+      }> = [];
     
     // Check if this is a route safety question (should I let my kid drive, etc.)
     const isRouteQuestion = isRouteSafetyQuestion(question);
@@ -246,8 +250,8 @@ export async function POST(request: Request) {
         console.log(`[Maple] Weather data from primary source: ${primaryWeather.source} (${sourceCount} total sources available: ${availableSources})`);
         
         // Store additional source info for AI context (will be added to prompt)
-        (currentWeather as any).allAvailableSources = availableSources;
-        (currentWeather as any).sourceCount = sourceCount;
+        (currentWeather as typeof currentWeather & { allAvailableSources: string; sourceCount: number }).allAvailableSources = availableSources;
+        (currentWeather as typeof currentWeather & { allAvailableSources: string; sourceCount: number }).sourceCount = sourceCount;
       } catch (error) {
         console.error('[Maple] Error fetching weather data:', error);
         // For government deployment: This is critical - we should fail gracefully
