@@ -17,23 +17,16 @@ export async function GET(request: Request) {
     const { searchParams } = new URL(request.url);
     const includePlows = searchParams.get('includePlows') === 'true';
     
-    // Get all school districts
-    const districts = await getAllDistricts();
-    
-    // If no districts found, return helpful error
-    if (!districts || districts.length === 0) {
-      console.error('[Map API] No districts found - Supabase may not be configured or database is empty');
-      return NextResponse.json(
-        {
-          error: 'No road safety data available',
-          details: 'The backend may not have road coordinate data. Please ensure Supabase is configured correctly.',
-          regions: [],
-          plows: [],
-          dangerousRoads: [],
-          timestamp: new Date().toISOString(),
-        },
-        { status: 503 }
-      );
+    // Get all school districts (but don't fail if empty - we'll still return road data)
+    let districts = [];
+    try {
+      districts = await getAllDistricts();
+      if (!districts || districts.length === 0) {
+        console.warn('[Map API] No districts found - continuing with road data only');
+      }
+    } catch (error) {
+      console.error('[Map API] Error fetching districts (non-fatal):', error);
+      // Continue without districts - we'll still return dangerousRoads
     }
     
     // Optionally fetch plow data if requested
@@ -52,8 +45,8 @@ export async function GET(request: Request) {
       }
     }
     
-    // Calculate road safety for each district
-    const roadSafetyData = await Promise.all(
+    // Calculate road safety for each district (only if we have districts)
+    const roadSafetyData = districts.length > 0 ? await Promise.all(
       districts.map(async (district) => {
         // Use zip code or district name
         const identifier = district.zip_codes && district.zip_codes.length > 0 
@@ -108,7 +101,7 @@ export async function GET(request: Request) {
           } : null,
         };
       })
-    );
+    ) : [];
 
     // ALWAYS generate weather-based road conditions FIRST using weather APIs
     // This ensures we ALWAYS have road data to display, regardless of other API failures
