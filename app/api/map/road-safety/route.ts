@@ -114,6 +114,10 @@ export async function GET(request: Request) {
     // This ensures we ALWAYS have road data to display, regardless of other API failures
     // Generate weather-based road conditions for major Vermont cities/regions
     // This ensures we show road safety predictions even when no incidents are reported
+    
+    // Initialize road conditions array
+    let roadConditions: RoadCondition[] = [];
+    
     const majorVermontLocations = [
       { name: 'Burlington', lat: 44.4759, lon: -73.2121 },
       { name: 'Montpelier', lat: 44.2664, lon: -72.5805 },
