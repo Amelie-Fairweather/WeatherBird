@@ -20,6 +20,22 @@ export async function GET(request: Request) {
     // Get all school districts
     const districts = await getAllDistricts();
     
+    // If no districts found, return helpful error
+    if (!districts || districts.length === 0) {
+      console.error('[Map API] No districts found - Supabase may not be configured or database is empty');
+      return NextResponse.json(
+        {
+          error: 'No road safety data available',
+          details: 'The backend may not have road coordinate data. Please ensure Supabase is configured correctly.',
+          regions: [],
+          plows: [],
+          dangerousRoads: [],
+          timestamp: new Date().toISOString(),
+        },
+        { status: 503 }
+      );
+    }
+    
     // Optionally fetch plow data if requested
     const plows: PlowLocation[] = [];
     if (includePlows) {
@@ -105,12 +121,128 @@ export async function GET(request: Request) {
       // Continue without road conditions - we'll still show district connections
     }
     
+    // Generate weather-based road conditions for major Vermont cities/regions
+    // This ensures we show road safety predictions even when no incidents are reported
+    const majorVermontLocations = [
+      { name: 'Burlington', lat: 44.4759, lon: -73.2121 },
+      { name: 'Montpelier', lat: 44.2664, lon: -72.5805 },
+      { name: 'Rutland', lat: 43.6106, lon: -72.9726 },
+      { name: 'Brattleboro', lat: 42.8509, lon: -72.5579 },
+      { name: 'St. Albans', lat: 44.8106, lon: -73.0832 },
+      { name: 'Barre', lat: 44.1970, lon: -72.5015 },
+      { name: 'White River Junction', lat: 43.6506, lon: -72.3193 },
+      { name: 'Middlebury', lat: 44.0153, lon: -73.1673 },
+      { name: 'Bennington', lat: 42.8781, lon: -73.1968 },
+      { name: 'Essex Junction', lat: 44.4914, lon: -73.1107 },
+    ];
+    
+    try {
+      // Fetch weather for each location in parallel for performance
+      // Each location gets its own accurate weather data using coordinates
+      const weatherPromises = majorVermontLocations.map(async (location) => {
+        try {
+          // Use coordinates for precise location-specific weather
+          const coordString = `${location.lat},${location.lon}`;
+          const weatherData = await fetchWeatherFromProvider(coordString, 'auto');
+          
+          // Temperature is in Celsius, convert to Fahrenheit
+          const tempC = weatherData.temperature;
+          const tempF = Math.round((tempC * 9/5) + 32);
+          const windMph = Math.round(weatherData.windSpeed * 2.237);
+          const humidity = weatherData.humidity || 0;
+          const description = weatherData.description.toLowerCase();
+          
+          console.log(`[Map API] ${location.name}: ${tempF}°F, ${description}, ${humidity}% humidity`);
+          
+          // Determine road condition based on accurate location-specific weather
+          let condition: 'clear' | 'wet' | 'snow-covered' | 'ice' | 'closed' | 'unknown' = 'clear';
+          let warning = '';
+          
+          // Priority 1: Freezing rain or ice conditions (most dangerous)
+          if (description.includes('freezing rain') || (description.includes('rain') && tempF <= 32)) {
+            condition = 'ice';
+            warning = `Freezing rain in ${location.name} - black ice likely. Temperature: ${tempF}°F`;
+          }
+          // Priority 2: Snow conditions
+          else if (description.includes('snow') || description.includes('snowfall')) {
+            condition = 'snow-covered';
+            warning = `Snow in ${location.name}. Temperature: ${tempF}°F`;
+          }
+          // Priority 3: Ice/freezing conditions (critical for safety)
+          else if (tempF <= 32 && (description.includes('rain') || description.includes('drizzle') || humidity > 80)) {
+            condition = 'ice';
+            warning = `Freezing conditions in ${location.name} - ice risk. Temperature: ${tempF}°F, Humidity: ${humidity}%`;
+          }
+          // Priority 4: Very cold conditions (severe ice risk)
+          else if (tempF <= 20) {
+            condition = 'ice';
+            warning = `Extremely cold in ${location.name} - severe ice risk. Temperature: ${tempF}°F`;
+          }
+          // Priority 5: Wet conditions near freezing
+          else if (description.includes('rain') || description.includes('drizzle')) {
+            condition = 'wet';
+            if (tempF <= 35) {
+              warning = `Wet roads in ${location.name} near freezing - watch for ice. Temperature: ${tempF}°F`;
+            }
+          }
+          // Priority 6: Near freezing with high humidity
+          else if (tempF <= 35 && humidity > 80) {
+            condition = 'wet';
+            warning = `Near freezing in ${location.name} with high humidity - ice risk. Temperature: ${tempF}°F`;
+          }
+          
+          // Create condition with accurate location-specific data
+          // Use a more descriptive route name that might match highways
+          const routeName = condition === 'ice' || condition === 'snow-covered' || condition === 'wet' 
+            ? `${location.name} Area Roads` 
+            : `${location.name} Area`;
+          
+          return {
+            route: routeName,
+            condition,
+            temperature: tempF,
+            warning: warning || undefined,
+            source: 'Weather-Based Prediction',
+            timestamp: new Date().toISOString(),
+            latitude: location.lat,
+            longitude: location.lon,
+          } as RoadCondition;
+        } catch (error) {
+          console.error(`[Map API] Failed to fetch weather for ${location.name}:`, error);
+          return null;
+        }
+      });
+      
+      const weatherBasedConditions = (await Promise.all(weatherPromises))
+        .filter((c): c is RoadCondition => c !== null);
+      
+      if (weatherBasedConditions.length > 0) {
+        roadConditions.push(...weatherBasedConditions);
+        console.log(`[Map API] Generated ${weatherBasedConditions.length} accurate weather-based conditions`);
+      }
+    } catch (error) {
+      console.error('Error generating weather-based road conditions (non-fatal):', error);
+    }
+    
     // Identify dangerous roads based on conditions
     let dangerousRoads: Awaited<ReturnType<typeof identifyDangerousRoads>> = [];
     try {
+      console.log(`[Map API] Processing ${roadConditions.length} road conditions to identify dangerous roads...`);
+      console.log(`[Map API] Road conditions breakdown: ${roadConditions.filter(c => c.latitude && c.longitude).length} with coordinates, ${roadConditions.filter(c => !c.latitude || !c.longitude).length} without coordinates`);
       dangerousRoads = await identifyDangerousRoads(roadConditions, roadSafetyData);
+      console.log(`[Map API] Identified ${dangerousRoads.length} dangerous roads`);
+      if (dangerousRoads.length > 0) {
+        console.log(`[Map API] Sample dangerous roads: ${dangerousRoads.slice(0, 3).map(r => `${r.route} (${r.safetyLevel}, score: ${r.safetyScore})`).join(', ')}`);
+      } else {
+        console.warn(`[Map API] WARNING: No dangerous roads identified from ${roadConditions.length} conditions. This may indicate a problem with coordinate matching or scoring.`);
+        // Log details about conditions for debugging
+        roadConditions.forEach((c, i) => {
+          console.log(`[Map API] Condition ${i + 1}: route="${c.route}", coords=[${c.latitude}, ${c.longitude}], condition=${c.condition}, source=${c.source}`);
+        });
+      }
     } catch (error) {
       console.error('Error identifying dangerous roads (non-fatal):', error);
+      console.error('Error stack:', error instanceof Error ? error.stack : 'No stack trace');
       // Continue without dangerous roads - we'll still show districts
     }
     
@@ -257,22 +389,22 @@ async function identifyDangerousRoads(
     'VT Route 9': [[42.8509, -72.5579], [42.8781, -73.1968]], // Brattleboro to Bennington
   };
 
-  // Fetch general weather context for Vermont (used for roads without specific location data)
+  // Fetch general weather context for Vermont (used as fallback for roads without specific location data)
+  // This is only used if a road condition doesn't have its own weather data
   let generalWeatherContext: { temperature?: number; windSpeed?: number; humidity?: number } = {};
   try {
-    const weatherData = await fetchWeatherFromProvider('Vermont', 'auto');
-    // Convert to Fahrenheit and mph
+    const weatherData = await fetchWeatherFromProvider('44.2664,-72.5805', 'auto'); // Montpelier center coordinates
     generalWeatherContext = {
-      temperature: Math.round((weatherData.temperature * 9/5) + 32), // Convert Celsius to Fahrenheit
-      windSpeed: Math.round(weatherData.windSpeed * 2.237), // Convert m/s to mph
+      temperature: Math.round((weatherData.temperature * 9/5) + 32),
+      windSpeed: Math.round(weatherData.windSpeed * 2.237),
       humidity: weatherData.humidity,
     };
   } catch (error) {
-    console.warn('[Road Safety] Could not fetch weather context for scoring:', error);
+    console.warn('[Road Safety] Could not fetch general weather context:', error);
   }
 
-  // Process ALL road conditions and assign safety levels using detailed algorithm
-  // Use Promise.all to handle async detailed scoring
+  // Process ALL road conditions with location-specific weather for maximum accuracy
+  // Each condition gets scored using its own weather data when available
   const roadScoringPromises: Promise<{
     route: string;
     condition: 'clear' | 'wet' | 'snow-covered' | 'ice' | 'closed' | 'unknown';
@@ -286,10 +418,26 @@ async function identifyDangerousRoads(
   } | null>[] = roadConditions.map(async (condition) => {
     const routeName = condition.route || 'Unknown Route';
     
-    // Use detailed scoring algorithm that considers multiple factors
+    // Use location-specific weather if coordinates are available
+    let locationWeatherContext = generalWeatherContext;
+    if (condition.latitude && condition.longitude) {
+      try {
+        const locationWeather = await fetchWeatherFromProvider(`${condition.latitude},${condition.longitude}`, 'auto');
+        locationWeatherContext = {
+          temperature: Math.round((locationWeather.temperature * 9/5) + 32),
+          windSpeed: Math.round(locationWeather.windSpeed * 2.237),
+          humidity: locationWeather.humidity,
+        };
+      } catch (error) {
+        // Fall back to general context if location-specific fetch fails
+        console.warn(`[Road Safety] Could not fetch location weather for ${routeName}, using general context`);
+      }
+    }
+    
+    // Use detailed scoring algorithm with location-specific weather
     const detailedScore = await calculateDetailedRoadSafetyScore(
       condition,
-      generalWeatherContext // Use general Vermont weather if specific location weather unavailable
+      locationWeatherContext // Use location-specific weather for accuracy
     );
     
     const safetyLevel = detailedScore.safetyLevel;
@@ -300,17 +448,30 @@ async function identifyDangerousRoads(
     // Determine coordinates for this route
     let coordinates: Array<[number, number]> | undefined;
     
-    // PRIORITY 1: Use GPS coordinates from TomTom or other sources if available
-    if (condition.latitude && condition.longitude) {
-      // For TomTom incidents, create a small line segment around the incident location
-      // This allows the incident to be visible as a clickable road segment
-      const lat = condition.latitude;
-      const lon = condition.longitude;
-      // Create a small line segment (about 0.01 degrees = ~1km) for visibility
+    // PRIORITY 1: Use GPS coordinates from condition if available (TomTom, Weather-Based, etc.)
+    // Validate coordinates are actually valid numbers before using
+    const hasValidCoords = condition.latitude !== undefined && 
+                          condition.longitude !== undefined &&
+                          typeof condition.latitude === 'number' &&
+                          typeof condition.longitude === 'number' &&
+                          !isNaN(condition.latitude) && 
+                          !isNaN(condition.longitude) &&
+                          condition.latitude >= -90 && condition.latitude <= 90 &&
+                          condition.longitude >= -180 && condition.longitude <= 180;
+    
+    if (hasValidCoords) {
+      // For any condition with coordinates, create a line segment around the location
+      // This allows the condition to be visible as a clickable road segment
+      const lat = condition.latitude!;
+      const lon = condition.longitude!;
+      // Create a line segment (about 0.02 degrees = ~2km) for visibility
+      // Larger segment for weather-based predictions to show area coverage
+      const segmentSize = condition.source === 'Weather-Based Prediction' ? 0.02 : 0.01;
       coordinates = [
-        [lat - 0.005, lon - 0.005],
-        [lat + 0.005, lon + 0.005]
+        [lat - segmentSize, lon - segmentSize],
+        [lat + segmentSize, lon + segmentSize]
       ];
+      console.log(`[Road Safety] Using GPS coordinates for ${routeName} (${condition.source}): [${lat}, ${lon}]`);
     } else {
       // PRIORITY 2: Check if route name matches a known highway
       for (const [highway, coords] of Object.entries(vermontHighways)) {
@@ -319,13 +480,30 @@ async function identifyDangerousRoads(
             routeName.toLowerCase().includes(highway.replace('I-', 'I').toLowerCase()) ||
             routeName.toLowerCase().includes(highway.replace('US Route', 'US').toLowerCase())) {
           coordinates = coords;
+          console.log(`[Road Safety] Matched ${routeName} to highway ${highway} using predefined coordinates`);
           break;
+        }
+      }
+      
+      // If still no match, try to extract route number from route name
+      if (!coordinates) {
+        const routeMatch = routeName.match(/(I-?\d+|US\s*Route\s*\d+|VT\s*Route\s*\d+|Route\s*\d+)/i);
+        if (routeMatch) {
+          const routeNum = routeMatch[1];
+          for (const [highway, coords] of Object.entries(vermontHighways)) {
+            if (highway.toLowerCase().includes(routeNum.toLowerCase().replace(/\s+/g, ''))) {
+              coordinates = coords;
+              console.log(`[Road Safety] Matched route number ${routeNum} to highway ${highway}`);
+              break;
+            }
+          }
         }
       }
     }
     
-    // If no coordinates found, skip (don't show roads without coordinates)
+    // If still no coordinates found, skip (don't show roads without coordinates)
     if (!coordinates) {
+      console.warn(`[Road Safety] Skipping ${routeName} - no coordinates available and no highway match`);
       return null; // Skip roads we can't map
     }
 
@@ -364,8 +542,10 @@ async function identifyDangerousRoads(
     routeId: string;
   };
   const scoredRoads = allScoredRoads.filter((road): road is ScoredRoad => 
-    road !== null && road.coordinates !== undefined
+    road !== null && road.coordinates !== undefined && road.coordinates.length > 0
   );
+  
+  console.log(`[Road Safety] Scored ${scoredRoads.length} roads from ${roadConditions.length} conditions (${allScoredRoads.length - scoredRoads.length} filtered out)`);
   
   // Add all scored roads to allRoads array
   allRoads.push(...scoredRoads);

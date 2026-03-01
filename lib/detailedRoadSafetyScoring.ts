@@ -94,8 +94,15 @@ export async function calculateDetailedRoadSafetyScore(
   // Convert temperature to Fahrenheit if needed
   let tempF = weatherContext?.temperature;
   if (condition.temperature !== undefined) {
-    // If condition has temp, use it (assume Celsius if < 50, Fahrenheit if >= 50)
-    tempF = condition.temperature < 50 ? (condition.temperature * 9/5) + 32 : condition.temperature;
+    // Condition temperature is already in Fahrenheit (set in route.ts)
+    // Only convert if it's clearly in Celsius (very cold values < 0 or reasonable Celsius range)
+    if (condition.temperature < -10 || (condition.temperature >= -10 && condition.temperature <= 50 && condition.temperature !== Math.round(condition.temperature))) {
+      // Likely Celsius - convert
+      tempF = Math.round((condition.temperature * 9/5) + 32);
+    } else {
+      // Already in Fahrenheit
+      tempF = condition.temperature;
+    }
   }
   const windMph = weatherContext?.windSpeed ? weatherContext.windSpeed : undefined;
   const humidity = weatherContext?.humidity;

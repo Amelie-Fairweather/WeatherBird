@@ -53,10 +53,44 @@ async function getGridPoint(latitude: number, longitude: number): Promise<{
  */
 export async function fetchNWSCurrentWeather(location: string): Promise<WeatherData> {
   try {
-    // For Vermont, use Burlington coordinates as default
-    // In production, you'd geocode the location first
-    const lat = 44.4759;
-    const lon = -73.2121;
+    // Parse location - could be coordinates "lat,lon" or city name
+    let lat = 44.4759; // Default to Burlington
+    let lon = -73.2121;
+    
+    // Check if location is in coordinate format "lat,lon"
+    const coordMatch = location.match(/^(-?\d+\.?\d*),(-?\d+\.?\d*)$/);
+    if (coordMatch) {
+      lat = parseFloat(coordMatch[1]);
+      lon = parseFloat(coordMatch[2]);
+      console.log(`[NWS] Using coordinates: ${lat}, ${lon}`);
+    } else {
+      // Try to geocode location name to coordinates
+      // For now, use known Vermont city coordinates
+      const vermontCities: Record<string, { lat: number; lon: number }> = {
+        'burlington': { lat: 44.4759, lon: -73.2121 },
+        'montpelier': { lat: 44.2664, lon: -72.5805 },
+        'rutland': { lat: 43.6106, lon: -72.9726 },
+        'brattleboro': { lat: 42.8509, lon: -72.5579 },
+        'st. albans': { lat: 44.8106, lon: -73.0832 },
+        'st albans': { lat: 44.8106, lon: -73.0832 },
+        'barre': { lat: 44.1970, lon: -72.5015 },
+        'white river junction': { lat: 43.6506, lon: -72.3193 },
+        'middlebury': { lat: 44.0153, lon: -73.1673 },
+        'bennington': { lat: 42.8781, lon: -73.1968 },
+        'essex junction': { lat: 44.4914, lon: -73.1107 },
+        'essex': { lat: 44.4914, lon: -73.1107 },
+      };
+      
+      const locationLower = location.toLowerCase();
+      if (vermontCities[locationLower]) {
+        const coords = vermontCities[locationLower];
+        lat = coords.lat;
+        lon = coords.lon;
+        console.log(`[NWS] Mapped "${location}" to coordinates: ${lat}, ${lon}`);
+      } else {
+        console.log(`[NWS] Unknown location "${location}", using default Burlington coordinates`);
+      }
+    }
 
     const gridPoint = await getGridPoint(lat, lon);
     

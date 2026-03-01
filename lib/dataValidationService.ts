@@ -17,9 +17,25 @@ export function validateRoadCondition(condition: RoadCondition): {
   const errors: string[] = [];
   const warnings: string[] = [];
 
-  // Required fields
+  // Route name is preferred but not required if we have valid GPS coordinates
+  // This allows TomTom incidents and other sources with coordinates but no route name to pass validation
+  const hasValidCoords = condition.latitude !== undefined && 
+                        condition.longitude !== undefined &&
+                        typeof condition.latitude === 'number' &&
+                        typeof condition.longitude === 'number' &&
+                        !isNaN(condition.latitude) && 
+                        !isNaN(condition.longitude) &&
+                        condition.latitude >= -90 && condition.latitude <= 90 &&
+                        condition.longitude >= -180 && condition.longitude <= 180;
+  
   if (!condition.route || condition.route.trim().length === 0) {
-    errors.push('Route is required');
+    if (!hasValidCoords) {
+      // Only require route if we don't have valid coordinates
+      errors.push('Route is required when GPS coordinates are not available');
+    } else {
+      // If we have coordinates, route name is optional - use a default
+      warnings.push('Route name missing - will use GPS coordinates for mapping');
+    }
   }
 
   if (!condition.condition) {
@@ -54,9 +70,12 @@ export function validateRoadCondition(condition: RoadCondition): {
   }
 
   // Validate GPS coordinates if present
+  // If coordinates are invalid, treat them as missing (not an error) so roads can still be mapped by name
   if (condition.latitude !== undefined) {
     if (isNaN(condition.latitude) || condition.latitude < -90 || condition.latitude > 90) {
-      errors.push('Invalid latitude');
+      // Invalid coordinate - treat as missing (not an error) so road can be mapped by name
+      warnings.push('Invalid latitude - will use route name mapping instead');
+      // Don't add to errors - allow the condition to pass validation
     } else {
       // Check if coordinates are in Vermont bounds (approximate)
       if (condition.latitude < 42.5 || condition.latitude > 45.5) {
@@ -67,13 +86,25 @@ export function validateRoadCondition(condition: RoadCondition): {
 
   if (condition.longitude !== undefined) {
     if (isNaN(condition.longitude) || condition.longitude < -180 || condition.longitude > 180) {
-      errors.push('Invalid longitude');
+      // Invalid coordinate - treat as missing (not an error) so road can be mapped by name
+      warnings.push('Invalid longitude - will use route name mapping instead');
+      // Don't add to errors - allow the condition to pass validation
     } else {
       // Check if coordinates are in Vermont bounds (approximate)
       if (condition.longitude > -71 || condition.longitude < -73.5) {
         warnings.push('Longitude is outside Vermont bounds - verify location');
       }
     }
+  }
+  
+  // If coordinates are invalid, we'll keep them as warnings but NOT clear them
+  // This allows the dangerous roads function to try to use them or fall back to highway matching
+  // Only clear coordinates if they're completely unusable (NaN or extreme values)
+  if (condition.latitude !== undefined && condition.longitude !== undefined) {
+    const latValid = !isNaN(condition.latitude) && condition.latitude >= -90 && condition.latitude <= 90;
+    const lonValid = !isNaN(condition.longitude) && condition.longitude >= -180 && condition.longitude <= 180;
+    // Don't clear coordinates - let the dangerous roads function decide what to do with them
+    // It can use them if valid, or fall back to highway name matching
   }
 
   // Validate temperature if present
