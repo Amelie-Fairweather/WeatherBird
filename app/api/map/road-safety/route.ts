@@ -18,7 +18,7 @@ export async function GET(request: Request) {
     const includePlows = searchParams.get('includePlows') === 'true';
     
     // Get all school districts (but don't fail if empty - we'll still return road data)
-    let districts = [];
+    let districts: Awaited<ReturnType<typeof getAllDistricts>> = [];
     try {
       districts = await getAllDistricts();
       if (!districts || districts.length === 0) {
