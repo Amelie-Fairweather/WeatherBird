@@ -110,17 +110,8 @@ export async function GET(request: Request) {
       })
     );
 
-    // Fetch road conditions to identify dangerous roads
-    // fetchAllRoadConditions() automatically validates and fact-checks all data
-    let roadConditions: RoadCondition[] = [];
-    try {
-      roadConditions = await fetchAllRoadConditions('Vermont');
-      console.log(`[Map API] Fetched and validated ${roadConditions.length} road conditions from all sources`);
-    } catch (error) {
-      console.error('Error fetching road conditions (non-fatal):', error);
-      // Continue without road conditions - we'll still show district connections
-    }
-    
+    // ALWAYS generate weather-based road conditions FIRST using weather APIs
+    // This ensures we ALWAYS have road data to display, regardless of other API failures
     // Generate weather-based road conditions for major Vermont cities/regions
     // This ensures we show road safety predictions even when no incidents are reported
     const majorVermontLocations = [
@@ -219,10 +210,29 @@ export async function GET(request: Request) {
       if (weatherBasedConditions.length > 0) {
         roadConditions.push(...weatherBasedConditions);
         console.log(`[Map API] Generated ${weatherBasedConditions.length} accurate weather-based conditions`);
+      } else {
+        console.warn('[Map API] WARNING: No weather-based conditions generated - this should not happen!');
       }
     } catch (error) {
-      console.error('Error generating weather-based road conditions (non-fatal):', error);
+      console.error('Error generating weather-based road conditions:', error);
+      // This is critical - we need weather-based predictions, so log the full error
+      console.error('Full error details:', error instanceof Error ? error.stack : error);
     }
+    
+    // Also fetch additional road conditions from other APIs (TomTom, NWS, etc.)
+    // But weather-based predictions are the primary source
+    try {
+      const additionalConditions = await fetchAllRoadConditions('Vermont');
+      if (additionalConditions.length > 0) {
+        roadConditions.push(...additionalConditions);
+        console.log(`[Map API] Added ${additionalConditions.length} additional road conditions from external APIs`);
+      }
+    } catch (error) {
+      console.error('Error fetching additional road conditions (non-fatal):', error);
+      // Continue with just weather-based predictions
+    }
+    
+    console.log(`[Map API] Total road conditions: ${roadConditions.length} (${roadConditions.filter(c => c.latitude && c.longitude).length} with coordinates)`);
     
     // Identify dangerous roads based on conditions
     let dangerousRoads: Awaited<ReturnType<typeof identifyDangerousRoads>> = [];
@@ -234,11 +244,19 @@ export async function GET(request: Request) {
       if (dangerousRoads.length > 0) {
         console.log(`[Map API] Sample dangerous roads: ${dangerousRoads.slice(0, 3).map(r => `${r.route} (${r.safetyLevel}, score: ${r.safetyScore})`).join(', ')}`);
       } else {
-        console.warn(`[Map API] WARNING: No dangerous roads identified from ${roadConditions.length} conditions. This may indicate a problem with coordinate matching or scoring.`);
+        console.warn(`[Map API] WARNING: No dangerous roads identified from ${roadConditions.length} conditions.`);
+        console.warn(`[Map API] Conditions with coordinates: ${roadConditions.filter(c => c.latitude && c.longitude).length}`);
+        console.warn(`[Map API] Conditions without coordinates: ${roadConditions.filter(c => !c.latitude || !c.longitude).length}`);
         // Log details about conditions for debugging
         roadConditions.forEach((c, i) => {
           console.log(`[Map API] Condition ${i + 1}: route="${c.route}", coords=[${c.latitude}, ${c.longitude}], condition=${c.condition}, source=${c.source}`);
         });
+        
+        // If we have weather-based conditions but no dangerous roads, there's a bug in identifyDangerousRoads
+        const weatherBasedCount = roadConditions.filter(c => c.source === 'Weather-Based Prediction').length;
+        if (weatherBasedCount > 0) {
+          console.error(`[Map API] ERROR: We have ${weatherBasedCount} weather-based conditions but identifyDangerousRoads returned empty!`);
+        }
       }
     } catch (error) {
       console.error('Error identifying dangerous roads (non-fatal):', error);
@@ -546,6 +564,19 @@ async function identifyDangerousRoads(
   );
   
   console.log(`[Road Safety] Scored ${scoredRoads.length} roads from ${roadConditions.length} conditions (${allScoredRoads.length - scoredRoads.length} filtered out)`);
+  
+  // Debug: Log why roads were filtered out
+  if (scoredRoads.length === 0 && roadConditions.length > 0) {
+    console.error(`[Road Safety] ERROR: All ${roadConditions.length} conditions were filtered out!`);
+    allScoredRoads.forEach((road, i) => {
+      if (road === null) {
+        const condition = roadConditions[i];
+        console.error(`[Road Safety] Condition ${i + 1} (${condition.route}) was filtered: coords=[${condition.latitude}, ${condition.longitude}]`);
+      } else if (!road.coordinates || road.coordinates.length === 0) {
+        console.error(`[Road Safety] Condition ${i + 1} (${road.route}) has no coordinates`);
+      }
+    });
+  }
   
   // Add all scored roads to allRoads array
   allRoads.push(...scoredRoads);
