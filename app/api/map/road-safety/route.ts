@@ -207,8 +207,13 @@ export async function GET(request: Request) {
       if (weatherBasedConditions.length > 0) {
         roadConditions.push(...weatherBasedConditions);
         console.log(`[Map API] Generated ${weatherBasedConditions.length} accurate weather-based conditions`);
+        // Log each one to verify they have coordinates
+        weatherBasedConditions.forEach((c, i) => {
+          console.log(`[Map API] Weather condition ${i + 1}: ${c.route} at [${c.latitude}, ${c.longitude}], condition=${c.condition}`);
+        });
       } else {
-        console.warn('[Map API] WARNING: No weather-based conditions generated - this should not happen!');
+        console.error('[Map API] ERROR: No weather-based conditions generated! This means weather API calls failed.');
+        console.error('[Map API] This is CRITICAL - we need weather-based predictions to show roads on the map.');
       }
     } catch (error) {
       console.error('Error generating weather-based road conditions:', error);
@@ -284,10 +289,52 @@ export async function GET(request: Request) {
       console.log(`[Map API] VTrans Incidents: ${vtransIncidents} incidents integrated`);
     }
     
-    // Ensure we always return valid data structure
-    // If dangerousRoads is empty but we have conditions, log it but still return
-    if (dangerousRoads.length === 0 && roadConditions.length > 0) {
-      console.warn(`[Map API] WARNING: Have ${roadConditions.length} conditions but dangerousRoads is empty`);
+    // ALWAYS ensure we have dangerous roads from weather-based predictions
+    // This guarantees data flows to frontend
+    const weatherBased = roadConditions.filter(c => c.source === 'Weather-Based Prediction' && c.latitude && c.longitude);
+    if (weatherBased.length > 0) {
+      // Create roads from weather-based conditions (always include these)
+      const weatherRoads = weatherBased.map((c, i) => {
+        const lat = c.latitude!;
+        const lon = c.longitude!;
+        // Determine safety score from condition
+        let safetyScore = 70;
+        let safetyLevel: 'excellent' | 'good' | 'caution' | 'poor' | 'hazardous' = 'good';
+        if (c.condition === 'ice') {
+          safetyScore = 25;
+          safetyLevel = 'poor';
+        } else if (c.condition === 'snow-covered') {
+          safetyScore = 40;
+          safetyLevel = 'caution';
+        } else if (c.condition === 'wet') {
+          safetyScore = 60;
+          safetyLevel = 'good';
+        } else if (c.condition === 'clear') {
+          safetyScore = 85;
+          safetyLevel = 'excellent';
+        }
+        
+        return {
+          route: c.route,
+          condition: c.condition,
+          severity: safetyScore < 40 ? 'high' : safetyScore < 60 ? 'moderate' : 'low' as 'low' | 'moderate' | 'high' | 'extreme',
+          safetyLevel,
+          safetyScore,
+          description: c.warning || `${c.condition} conditions`,
+          coordinates: [
+            [lat - 0.02, lon - 0.02],
+            [lat + 0.02, lon + 0.02]
+          ],
+          warning: c.warning,
+          routeId: `weather-${c.route.toLowerCase().replace(/\s+/g, '-')}-${i}`,
+        };
+      });
+      
+      // Merge with existing dangerous roads (avoid duplicates)
+      const existingRouteIds = new Set(dangerousRoads.map(r => r.routeId));
+      const newWeatherRoads = weatherRoads.filter(r => !existingRouteIds.has(r.routeId));
+      dangerousRoads = [...dangerousRoads, ...newWeatherRoads];
+      console.log(`[Map API] Added ${newWeatherRoads.length} weather-based roads. Total dangerous roads: ${dangerousRoads.length}`);
     }
     
     return NextResponse.json({
@@ -464,10 +511,50 @@ async function identifyDangerousRoads(
     }
     
     // Use detailed scoring algorithm with location-specific weather
-    const detailedScore = await calculateDetailedRoadSafetyScore(
-      condition,
-      locationWeatherContext // Use location-specific weather for accuracy
-    );
+    // If scoring fails, use fallback values for weather-based predictions
+    let detailedScore;
+    try {
+      detailedScore = await calculateDetailedRoadSafetyScore(
+        condition,
+        locationWeatherContext // Use location-specific weather for accuracy
+      );
+    } catch (error) {
+      console.error(`[Road Safety] Scoring failed for ${routeName}, using fallback:`, error);
+      // For weather-based predictions, use condition-based scoring
+      if (condition.source === 'Weather-Based Prediction') {
+        // Determine safety based on condition type
+        let fallbackScore = 70; // Default to "good"
+        let fallbackLevel: 'excellent' | 'good' | 'caution' | 'poor' | 'hazardous' = 'good';
+        let fallbackSeverity: 'low' | 'moderate' | 'high' | 'extreme' = 'moderate';
+        
+        if (condition.condition === 'ice') {
+          fallbackScore = 25;
+          fallbackLevel = 'poor';
+          fallbackSeverity = 'high';
+        } else if (condition.condition === 'snow-covered') {
+          fallbackScore = 40;
+          fallbackLevel = 'caution';
+          fallbackSeverity = 'moderate';
+        } else if (condition.condition === 'wet') {
+          fallbackScore = 60;
+          fallbackLevel = 'good';
+          fallbackSeverity = 'low';
+        } else if (condition.condition === 'clear') {
+          fallbackScore = 85;
+          fallbackLevel = 'excellent';
+          fallbackSeverity = 'low';
+        }
+        
+        detailedScore = {
+          safetyLevel: fallbackLevel,
+          safetyScore: fallbackScore,
+          severity: fallbackSeverity,
+          explanation: condition.warning || `${condition.condition} conditions in ${routeName}`,
+        };
+      } else {
+        throw error; // Re-throw for non-weather-based conditions
+      }
+    }
     
     const safetyLevel = detailedScore.safetyLevel;
     const safetyScore = detailedScore.safetyScore;
@@ -531,9 +618,21 @@ async function identifyDangerousRoads(
     }
     
     // If still no coordinates found, skip (don't show roads without coordinates)
+    // EXCEPT for weather-based predictions - they MUST have coordinates, so if they don't, use the condition's coordinates
     if (!coordinates) {
-      console.warn(`[Road Safety] Skipping ${routeName} - no coordinates available and no highway match`);
-      return null; // Skip roads we can't map
+      // For weather-based predictions, we KNOW they have coordinates, so use them directly
+      if (condition.source === 'Weather-Based Prediction' && hasValidCoords) {
+        const lat = condition.latitude!;
+        const lon = condition.longitude!;
+        coordinates = [
+          [lat - 0.02, lon - 0.02],
+          [lat + 0.02, lon + 0.02]
+        ];
+        console.log(`[Road Safety] Using weather-based coordinates directly for ${routeName}: [${lat}, ${lon}]`);
+      } else {
+        console.warn(`[Road Safety] Skipping ${routeName} - no coordinates available and no highway match`);
+        return null; // Skip roads we can't map
+      }
     }
 
     // Show ALL roads with safety assessments, not just dangerous ones
@@ -582,11 +681,20 @@ async function identifyDangerousRoads(
     allScoredRoads.forEach((road, i) => {
       if (road === null) {
         const condition = roadConditions[i];
-        console.error(`[Road Safety] Condition ${i + 1} (${condition.route}) was filtered: coords=[${condition.latitude}, ${condition.longitude}]`);
+        console.error(`[Road Safety] Condition ${i + 1} (${condition.route}, source: ${condition.source}) was filtered: coords=[${condition.latitude}, ${condition.longitude}]`);
       } else if (!road.coordinates || road.coordinates.length === 0) {
         console.error(`[Road Safety] Condition ${i + 1} (${road.route}) has no coordinates`);
       }
     });
+    
+    // CRITICAL: If we have weather-based conditions but they're all filtered, something is wrong
+    const weatherBasedConditions = roadConditions.filter(c => c.source === 'Weather-Based Prediction');
+    if (weatherBasedConditions.length > 0) {
+      console.error(`[Road Safety] CRITICAL ERROR: ${weatherBasedConditions.length} weather-based conditions exist but none made it to dangerousRoads!`);
+      weatherBasedConditions.forEach((c, i) => {
+        console.error(`[Road Safety] Weather condition ${i + 1}: route="${c.route}", lat=${c.latitude}, lon=${c.longitude}, condition=${c.condition}`);
+      });
+    }
   }
   
   // Add all scored roads to allRoads array
