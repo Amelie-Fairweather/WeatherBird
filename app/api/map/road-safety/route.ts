@@ -284,8 +284,14 @@ export async function GET(request: Request) {
       console.log(`[Map API] VTrans Incidents: ${vtransIncidents} incidents integrated`);
     }
     
+    // Ensure we always return valid data structure
+    // If dangerousRoads is empty but we have conditions, log it but still return
+    if (dangerousRoads.length === 0 && roadConditions.length > 0) {
+      console.warn(`[Map API] WARNING: Have ${roadConditions.length} conditions but dangerousRoads is empty`);
+    }
+    
     return NextResponse.json({
-      regions: roadSafetyData,
+      regions: roadSafetyData || [],
       plows: plows.length > 0 ? plows.map(p => ({
         id: p.id,
         latitude: p.latitude,
@@ -293,7 +299,7 @@ export async function GET(request: Request) {
         route: p.route,
         status: p.status,
       })) : [],
-      dangerousRoads, // Now includes ALL roads with safety ratings, including TomTom incidents with GPS coordinates
+      dangerousRoads: dangerousRoads || [], // Always return array, never undefined
       plowDataStatus: plows.length > 0 ? 'available' : 'unavailable',
       plowDataNote: plows.length === 0 
         ? 'Plow data not yet available. See PLOW_DATA_SOURCES.md for integration details.'
@@ -309,26 +315,34 @@ export async function GET(request: Request) {
         newEngland511: ne511,
       },
       timestamp: new Date().toISOString(),
-    });
+    }, { status: 200 }); // Explicitly return 200
   } catch (error) {
     console.error('Error fetching road safety map data:', error);
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    const errorStack = error instanceof Error ? error.stack : undefined;
     
-    // Log full error details for debugging
-    console.error('Full error details:', {
-      message: errorMessage,
-      stack: errorStack,
-      error,
-    });
-    
+    // ALWAYS return 200 with data structure, even on error
+    // This ensures frontend always gets data it can work with
     return NextResponse.json(
       {
-        error: 'Failed to fetch road safety map data',
-        details: errorMessage,
-        ...(process.env.NODE_ENV === 'development' && errorStack ? { stack: errorStack } : {}),
+        regions: [],
+        plows: [],
+        dangerousRoads: [],
+        plowDataStatus: 'unavailable',
+        plowDataNote: 'Error occurred but returning empty data structure',
+        dataSources: {
+          total: 0,
+          tomtomIncidents: 0,
+          nwsAlerts: 0,
+          xweatherConditions: 0,
+          vtransRWIS: 0,
+          vtransLaneClosures: 0,
+          vtransIncidents: 0,
+          newEngland511: 0,
+        },
+        timestamp: new Date().toISOString(),
+        error: errorMessage, // Include error for debugging but don't fail
       },
-      { status: 500 }
+      { status: 200 } // Always return 200 so frontend doesn't crash
     );
   }
 }
