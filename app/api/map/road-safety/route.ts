@@ -294,7 +294,7 @@ export async function GET(request: Request) {
     const weatherBased = roadConditions.filter(c => c.source === 'Weather-Based Prediction' && c.latitude && c.longitude);
     if (weatherBased.length > 0) {
       // Create roads from weather-based conditions (always include these)
-      const weatherRoads = weatherBased.map((c, i) => {
+      const weatherRoads: Awaited<ReturnType<typeof identifyDangerousRoads>> = weatherBased.map((c, i) => {
         const lat = c.latitude!;
         const lon = c.longitude!;
         // Determine safety score from condition
@@ -316,15 +316,15 @@ export async function GET(request: Request) {
         
         return {
           route: c.route,
-          condition: c.condition,
-          severity: safetyScore < 40 ? 'high' : safetyScore < 60 ? 'moderate' : 'low' as 'low' | 'moderate' | 'high' | 'extreme',
+          condition: c.condition as 'clear' | 'wet' | 'snow-covered' | 'ice' | 'closed' | 'unknown',
+          severity: (safetyScore < 40 ? 'high' : safetyScore < 60 ? 'moderate' : 'low') as 'low' | 'moderate' | 'high' | 'extreme',
           safetyLevel,
           safetyScore,
           description: c.warning || `${c.condition} conditions`,
           coordinates: [
             [lat - 0.02, lon - 0.02],
             [lat + 0.02, lon + 0.02]
-          ],
+          ] as Array<[number, number]>,
           warning: c.warning,
           routeId: `weather-${c.route.toLowerCase().replace(/\s+/g, '-')}-${i}`,
         };
