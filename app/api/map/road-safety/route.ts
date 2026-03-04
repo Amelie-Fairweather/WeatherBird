@@ -209,6 +209,7 @@ export async function GET(request: Request) {
             routeName = `${roadInfo.primary} (${area} area)`;
           }
           
+          // Return primary road condition
           return {
             route: routeName,
             condition,
@@ -231,6 +232,35 @@ export async function GET(request: Request) {
       if (weatherBasedConditions.length > 0) {
         roadConditions.push(...weatherBasedConditions);
         console.log(`[Map API] Generated ${weatherBasedConditions.length} accurate weather-based conditions`);
+        
+        // For dangerous conditions (ice, snow), also add local area roads
+        // This detects hazards on city streets, not just highways
+        const dangerousConditions = weatherBasedConditions.filter(c => 
+          c.condition === 'ice' || c.condition === 'snow-covered' || c.condition === 'wet'
+        );
+        
+        if (dangerousConditions.length > 0) {
+          const localRoads: RoadCondition[] = dangerousConditions.map(c => {
+            // Extract area from route name (e.g., "I-89 (Burlington north)" -> "Burlington")
+            const areaMatch = c.route.match(/\(([^)]+)\s*(north|south|east|west|area)\)/);
+            const area = areaMatch ? areaMatch[1] : c.route.split('(')[0].trim();
+            
+            return {
+              route: `${area} Area Roads`,
+              condition: c.condition,
+              temperature: c.temperature,
+              warning: c.warning,
+              source: 'Weather-Based Prediction',
+              timestamp: c.timestamp,
+              latitude: c.latitude,
+              longitude: c.longitude,
+            } as RoadCondition;
+          });
+          
+          roadConditions.push(...localRoads);
+          console.log(`[Map API] Added ${localRoads.length} local area roads for dangerous conditions`);
+        }
+        
         // Log each one to verify they have coordinates
         weatherBasedConditions.forEach((c, i) => {
           console.log(`[Map API] Weather condition ${i + 1}: ${c.route} at [${c.latitude}, ${c.longitude}], condition=${c.condition}`);
