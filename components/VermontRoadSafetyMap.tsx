@@ -745,39 +745,57 @@ export default function VermontRoadSafetyMap() {
             );
           })}
           
-          {/* Highlight ONLY caution, poor, and hazardous roads - all others are not shown */}
+          {/* Show ALL roads on map - dangerous ones in red, safe ones in green/blue */}
           {mapData?.dangerousRoads && mapData.dangerousRoads
-            .filter(road => {
-              // Only show roads with caution, poor, or hazardous ratings
-              return road.safetyLevel === 'caution' || 
-                     road.safetyLevel === 'poor' || 
-                     road.safetyLevel === 'hazardous';
-            })
+            .filter(road => road.coordinates && road.coordinates.length >= 2)
             .map((road, index) => {
-            if (!road.coordinates || road.coordinates.length < 2) return null;
+            // Show dangerous roads in red, safe roads in green/blue
+            const isDangerous = road.safetyLevel === 'caution' || 
+                               road.safetyLevel === 'poor' || 
+                               road.safetyLevel === 'hazardous';
             
-            // Color code by safety level (ONLY caution, poor, hazardous shown)
-            let color = '#DC2626'; // Default to red
-            let weight = 6;
-            let opacity = 0.9;
+            // Color code by safety level - dangerous in red, safe in green/blue
+            let color = '#DC2626'; // Default to red for dangerous
+            let weight = 5;
+            let opacity = 0.8;
             
-            switch (road.safetyLevel) {
-              case 'caution':
-                // CAUTION ZONES: Districts/roads with scores 40-59 - use red for consistency
-                color = '#DC2626'; // Red - consistent with danger color scheme
-                weight = 6; // Thicker line (6px) for maximum visibility - stands out on map
-                opacity = 0.9; // High opacity (0.9) to ensure caution zones are clearly visible
-                break;
-              case 'poor':
-                color = '#DC2626'; // Red - same as caution for consistency
-                weight = 5;
-                opacity = 0.85;
-                break;
-              case 'hazardous':
-                color = '#991B1B'; // Deep dark red - darker red for most dangerous
-                weight = 6;
-                opacity = 0.9;
-                break;
+            if (isDangerous) {
+              // Dangerous roads: red colors
+              switch (road.safetyLevel) {
+                case 'caution':
+                  color = '#DC2626'; // Red
+                  weight = 6;
+                  opacity = 0.9;
+                  break;
+                case 'poor':
+                  color = '#DC2626'; // Red
+                  weight = 5;
+                  opacity = 0.85;
+                  break;
+                case 'hazardous':
+                  color = '#991B1B'; // Deep dark red
+                  weight = 6;
+                  opacity = 0.9;
+                  break;
+              }
+            } else {
+              // Safe roads: green/blue colors
+              switch (road.safetyLevel) {
+                case 'excellent':
+                  color = '#10B981'; // Green
+                  weight = 4;
+                  opacity = 0.7;
+                  break;
+                case 'good':
+                  color = '#3B82F6'; // Blue
+                  weight = 4;
+                  opacity = 0.7;
+                  break;
+                default:
+                  color = '#9CA3AF'; // Gray for unknown
+                  weight = 3;
+                  opacity = 0.5;
+              }
             }
             
             return (
@@ -792,6 +810,91 @@ export default function VermontRoadSafetyMap() {
           })}
         </MapContainer>
       </div>
+      
+      {/* Dangerous Roads and Safe Roads Sections - Matching Swift App Design */}
+      {mapData?.dangerousRoads && mapData.dangerousRoads.length > 0 && (
+        <div className="mt-4 space-y-4">
+          {/* Dangerous Roads Detected Section */}
+          {mapData.dangerousRoads.filter(road => 
+            road.safetyLevel === 'caution' || 
+            road.safetyLevel === 'poor' || 
+            road.safetyLevel === 'hazardous'
+          ).length > 0 && (
+            <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+              <div className="flex items-center gap-2 mb-3">
+                <span className="text-2xl">⚠️</span>
+                <h4 className="text-lg font-bold font-cormorant text-red-700">Dangerous Roads Detected</h4>
+              </div>
+              <div className="space-y-2">
+                {mapData.dangerousRoads
+                  .filter(road => 
+                    road.safetyLevel === 'caution' || 
+                    road.safetyLevel === 'poor' || 
+                    road.safetyLevel === 'hazardous'
+                  )
+                  .map((road, index) => (
+                    <div key={road.routeId || index} className="flex items-start justify-between p-2 bg-white rounded border border-red-100">
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2 mb-1">
+                          <div className="w-2 h-2 rounded-full bg-red-500"></div>
+                          <p className="font-semibold font-cormorant text-gray-800">{road.route}</p>
+                        </div>
+                        <p className="text-xs text-gray-600 font-cormorant ml-4">
+                          Condition: <span className="font-semibold">{road.condition}</span>
+                        </p>
+                        <p className="text-xs text-gray-600 font-cormorant ml-4">
+                          {road.description || road.warning || `${road.condition} conditions`}
+                        </p>
+                      </div>
+                      <div className="ml-4">
+                        <p className="text-xl font-bold font-cormorant text-red-600">{road.safetyScore}</p>
+                      </div>
+                    </div>
+                  ))}
+              </div>
+            </div>
+          )}
+          
+          {/* Safe Roads Section */}
+          {mapData.dangerousRoads.filter(road => 
+            road.safetyLevel === 'excellent' || 
+            road.safetyLevel === 'good'
+          ).length > 0 && (
+            <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+              <div className="flex items-center gap-2 mb-3">
+                <span className="text-2xl">✓</span>
+                <h4 className="text-lg font-bold font-cormorant text-green-700">Safe Roads</h4>
+              </div>
+              <div className="space-y-2">
+                {mapData.dangerousRoads
+                  .filter(road => 
+                    road.safetyLevel === 'excellent' || 
+                    road.safetyLevel === 'good'
+                  )
+                  .map((road, index) => (
+                    <div key={road.routeId || index} className="flex items-start justify-between p-2 bg-white rounded border border-green-100">
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="text-green-600">✓</span>
+                          <p className="font-semibold font-cormorant text-gray-800">{road.route}</p>
+                        </div>
+                        <p className="text-xs text-gray-600 font-cormorant ml-4">
+                          Condition: <span className="font-semibold">{road.condition}</span>
+                        </p>
+                        <p className="text-xs text-gray-600 font-cormorant ml-4">
+                          {road.description || `${road.condition} conditions`}
+                        </p>
+                      </div>
+                      <div className="ml-4">
+                        <p className="text-xl font-bold font-cormorant text-green-600">{road.safetyScore}</p>
+                      </div>
+                    </div>
+                  ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
       
       {mapData && (
         <p className="text-xs text-gray-500 mt-2 font-cormorant text-right">
