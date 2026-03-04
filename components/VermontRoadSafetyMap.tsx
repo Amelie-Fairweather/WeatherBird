@@ -817,29 +817,30 @@ export default function VermontRoadSafetyMap() {
       {/* Dangerous Roads and Safe Roads Sections - Matching Swift App Design */}
       {mapData?.dangerousRoads && mapData.dangerousRoads.length > 0 && (
         <div className="mt-4 space-y-4">
-          {/* Group roads by route name to avoid duplicates - each road appears ONLY ONCE */}
+          {/* Group roads by full route name (including area) to avoid exact duplicates */}
           {(() => {
-            // Group roads by route name, keeping only the worst condition for each route
-            const roadsByRoute = new Map<string, typeof mapData.dangerousRoads[0]>();
+            // Group roads by full route name (e.g., "I-89 (Burlington)" vs "I-89 (Montpelier)" are different)
+            // This allows area-specific entries while preventing exact duplicates
+            const roadsByFullRoute = new Map<string, typeof mapData.dangerousRoads[0]>();
             
             mapData.dangerousRoads.forEach(road => {
-              const routeName = road.route;
-              const existing = roadsByRoute.get(routeName);
+              const fullRouteName = road.route; // Keep full name with area/direction
+              const existing = roadsByFullRoute.get(fullRouteName);
               
-              // If road doesn't exist yet, or this one has a worse condition (lower score), use this one
+              // If same exact route name exists, keep the one with worse condition (lower score)
               if (!existing || road.safetyScore < existing.safetyScore) {
-                roadsByRoute.set(routeName, road);
+                roadsByFullRoute.set(fullRouteName, road);
               }
             });
             
             // Split into dangerous and safe - each road appears in ONLY ONE section
-            const dangerousRoads = Array.from(roadsByRoute.values()).filter(road => 
+            const dangerousRoads = Array.from(roadsByFullRoute.values()).filter(road => 
               road.safetyLevel === 'caution' || 
               road.safetyLevel === 'poor' || 
               road.safetyLevel === 'hazardous'
             );
             
-            const safeRoads = Array.from(roadsByRoute.values()).filter(road => 
+            const safeRoads = Array.from(roadsByFullRoute.values()).filter(road => 
               road.safetyLevel === 'excellent' || 
               road.safetyLevel === 'good'
             );

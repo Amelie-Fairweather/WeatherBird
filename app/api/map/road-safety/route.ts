@@ -112,22 +112,23 @@ export async function GET(request: Request) {
     let roadConditions: RoadCondition[] = [];
     
     const majorVermontLocations = [
-      { name: 'Burlington', lat: 44.4759, lon: -73.2121 },
-      { name: 'Montpelier', lat: 44.2664, lon: -72.5805 },
-      { name: 'Rutland', lat: 43.6106, lon: -72.9726 },
-      { name: 'Brattleboro', lat: 42.8509, lon: -72.5579 },
-      { name: 'St. Albans', lat: 44.8106, lon: -73.0832 },
-      { name: 'Barre', lat: 44.1970, lon: -72.5015 },
-      { name: 'White River Junction', lat: 43.6506, lon: -72.3193 },
-      { name: 'Middlebury', lat: 44.0153, lon: -73.1673 },
-      { name: 'Bennington', lat: 42.8781, lon: -73.1968 },
-      { name: 'Essex Junction', lat: 44.4914, lon: -73.1107 },
+      { name: 'Burlington', lat: 44.4759, lon: -73.2121, area: 'Burlington', direction: 'north' },
+      { name: 'Montpelier', lat: 44.2664, lon: -72.5805, area: 'Montpelier', direction: 'central' },
+      { name: 'Rutland', lat: 43.6106, lon: -72.9726, area: 'Rutland', direction: 'central' },
+      { name: 'Brattleboro', lat: 42.8509, lon: -72.5579, area: 'Brattleboro', direction: 'south' },
+      { name: 'St. Albans', lat: 44.8106, lon: -73.0832, area: 'St. Albans', direction: 'north' },
+      { name: 'Barre', lat: 44.1970, lon: -72.5015, area: 'Barre', direction: 'central' },
+      { name: 'White River Junction', lat: 43.6506, lon: -72.3193, area: 'White River Junction', direction: 'east' },
+      { name: 'Middlebury', lat: 44.0153, lon: -73.1673, area: 'Middlebury', direction: 'west' },
+      { name: 'Bennington', lat: 42.8781, lon: -73.1968, area: 'Bennington', direction: 'south' },
+      { name: 'Essex Junction', lat: 44.4914, lon: -73.1107, area: 'Essex Junction', direction: 'north' },
+      { name: 'Shelburne', lat: 44.3810, lon: -73.2276, area: 'Shelburne', direction: 'south' },
     ];
     
     try {
       // Fetch weather for each location in parallel for performance
       // Each location gets its own accurate weather data using coordinates
-      const weatherPromises = majorVermontLocations.map(async (location) => {
+      const weatherPromises = majorVermontLocations.map(async (location: { name: string; lat: number; lon: number; area?: string; direction?: string }) => {
         try {
           // Use coordinates for precise location-specific weather
           const coordString = `${location.lat},${location.lon}`;
@@ -180,27 +181,32 @@ export async function GET(request: Request) {
           }
           
           // Create condition with accurate location-specific data
-          // Use specific road names based on location
-          let routeName = `${location.name} Area`;
-          
-          // Map locations to specific major roads
-          const locationRoads: Record<string, string[]> = {
-            'Burlington': ['I-89', 'US Route 7', 'VT Route 127'],
-            'Montpelier': ['I-89', 'US Route 2', 'VT Route 12'],
-            'Rutland': ['US Route 7', 'US Route 4', 'VT Route 100'],
-            'Brattleboro': ['I-91', 'US Route 5', 'VT Route 9'],
-            'St. Albans': ['I-89', 'US Route 7', 'VT Route 78'],
-            'Barre': ['I-89', 'US Route 302', 'VT Route 14'],
-            'White River Junction': ['I-89', 'I-91', 'US Route 5'],
-            'Middlebury': ['US Route 7', 'VT Route 30', 'VT Route 125'],
-            'Bennington': ['US Route 7', 'US Route 9', 'VT Route 9'],
-            'Essex Junction': ['I-89', 'US Route 2', 'VT Route 15'],
+          // Use specific road names with area and direction indicators
+          const locationRoads: Record<string, { primary: string; secondary?: string; area?: string }> = {
+            'Burlington': { primary: 'I-89', secondary: 'US Route 7', area: 'Burlington' },
+            'Montpelier': { primary: 'I-89', secondary: 'US Route 2', area: 'Montpelier' },
+            'Rutland': { primary: 'US Route 7', secondary: 'US Route 4', area: 'Rutland' },
+            'Brattleboro': { primary: 'I-91', secondary: 'US Route 5', area: 'Brattleboro' },
+            'St. Albans': { primary: 'I-89', secondary: 'US Route 7', area: 'St. Albans' },
+            'Barre': { primary: 'I-89', secondary: 'US Route 302', area: 'Barre' },
+            'White River Junction': { primary: 'I-89', secondary: 'I-91', area: 'White River Junction' },
+            'Middlebury': { primary: 'US Route 7', secondary: 'VT Route 30', area: 'Middlebury' },
+            'Bennington': { primary: 'US Route 7', secondary: 'US Route 9', area: 'Bennington' },
+            'Essex Junction': { primary: 'I-89', secondary: 'US Route 2', area: 'Essex Junction' },
+            'Shelburne': { primary: 'US Route 7', secondary: 'VT Route 116', area: 'Shelburne' },
           };
           
-          // Use first major road for this location, or default to area name
-          const roads = locationRoads[location.name] || [];
-          if (roads.length > 0) {
-            routeName = roads[0]; // Use the primary road (usually interstate/highway)
+          const roadInfo = locationRoads[location.name] || { primary: `${location.name} Area Roads`, area: location.name };
+          const locationWithMeta = location as { direction?: string; area?: string };
+          const direction = locationWithMeta.direction || '';
+          const area = roadInfo.area || location.name;
+          
+          // Create specific road name with area and direction
+          let routeName = roadInfo.primary;
+          if (direction && area && direction !== 'central') {
+            routeName = `${roadInfo.primary} (${area} ${direction})`;
+          } else if (area) {
+            routeName = `${roadInfo.primary} (${area} area)`;
           }
           
           return {
@@ -311,22 +317,9 @@ export async function GET(request: Request) {
     // This guarantees data flows to frontend
     const weatherBased = roadConditions.filter(c => c.source === 'Weather-Based Prediction' && c.latitude && c.longitude);
     if (weatherBased.length > 0) {
-      // Group roads by route name - each road appears only once
-      // Use the WORST condition along the road to determine if it's dangerous or safe
-      const roadsByRoute = new Map<string, {
-        route: string;
-        conditions: Array<{
-          condition: string;
-          score: number;
-          level: 'excellent' | 'good' | 'caution' | 'poor' | 'hazardous';
-          lat: number;
-          lon: number;
-          warning?: string;
-          description?: string;
-        }>;
-      }>();
-      
-      weatherBased.forEach((c) => {
+      // Create roads from weather-based conditions - each location gets its own road entry
+      // This way we show specific segments (Burlington area, Shelburne area, etc.)
+      const weatherRoads: Awaited<ReturnType<typeof identifyDangerousRoads>> = weatherBased.map((c, i) => {
         const lat = c.latitude!;
         const lon = c.longitude!;
         // Determine safety score from condition
@@ -346,58 +339,46 @@ export async function GET(request: Request) {
           safetyLevel = 'excellent';
         }
         
-        const routeName = c.route;
-        if (!roadsByRoute.has(routeName)) {
-          roadsByRoute.set(routeName, {
-            route: routeName,
-            conditions: []
-          });
-        }
-        
-        roadsByRoute.get(routeName)!.conditions.push({
-          condition: c.condition,
-          score: safetyScore,
-          level: safetyLevel,
-          lat,
-          lon,
-          warning: c.warning,
-          description: c.warning || `${c.condition} conditions`,
-        });
-      });
-      
-      // Create one road entry per route, using the WORST condition
-      const weatherRoads: Awaited<ReturnType<typeof identifyDangerousRoads>> = Array.from(roadsByRoute.values()).map((roadData, i) => {
-        // Find the worst condition along this road
-        const worstCondition = roadData.conditions.reduce((worst, current) => {
-          // Lower score = worse condition
-          return current.score < worst.score ? current : worst;
-        });
-        
-        // Use coordinates from the worst condition location
-        const lat = worstCondition.lat;
-        const lon = worstCondition.lon;
+        // Extract base road name (remove area/direction info for grouping)
+        const baseRouteMatch = c.route.match(/^([^\(]+)/);
+        const baseRoute = baseRouteMatch ? baseRouteMatch[1].trim() : c.route;
         
         return {
-          route: roadData.route,
-          condition: worstCondition.condition as 'clear' | 'wet' | 'snow-covered' | 'ice' | 'closed' | 'unknown',
-          severity: (worstCondition.score < 40 ? 'high' : worstCondition.score < 60 ? 'moderate' : 'low') as 'low' | 'moderate' | 'high' | 'extreme',
-          safetyLevel: worstCondition.level,
-          safetyScore: worstCondition.score,
-          description: worstCondition.warning || worstCondition.description || `${worstCondition.condition} conditions`,
+          route: c.route, // Keep full name with area/direction
+          condition: c.condition as 'clear' | 'wet' | 'snow-covered' | 'ice' | 'closed' | 'unknown',
+          severity: (safetyScore < 40 ? 'high' : safetyScore < 60 ? 'moderate' : 'low') as 'low' | 'moderate' | 'high' | 'extreme',
+          safetyLevel,
+          safetyScore,
+          description: c.warning || `${c.condition} conditions`,
           coordinates: [
             [lat - 0.02, lon - 0.02],
             [lat + 0.02, lon + 0.02]
           ] as Array<[number, number]>,
-          warning: worstCondition.warning,
-          routeId: `weather-${roadData.route.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '')}`,
+          warning: c.warning,
+          routeId: `weather-${c.route.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-()]/g, '')}-${i}`,
         };
       });
       
-      // Merge with existing dangerous roads (avoid duplicates by route name)
+      // Group by base route name to avoid exact duplicates, but keep area-specific entries separate
+      // This allows "I-89 (Burlington)" and "I-89 (Montpelier)" to both appear
+      const roadsByFullRoute = new Map<string, typeof weatherRoads[0]>();
+      weatherRoads.forEach(road => {
+        const fullRoute = road.route;
+        const existing = roadsByFullRoute.get(fullRoute);
+        
+        // If same exact route name exists, keep the one with worse condition (lower score)
+        if (!existing || road.safetyScore < existing.safetyScore) {
+          roadsByFullRoute.set(fullRoute, road);
+        }
+      });
+      
+      const uniqueWeatherRoads = Array.from(roadsByFullRoute.values());
+      
+      // Merge with existing dangerous roads (avoid exact duplicates)
       const existingRoutes = new Set(dangerousRoads.map(r => r.route));
-      const newWeatherRoads = weatherRoads.filter(r => !existingRoutes.has(r.route));
+      const newWeatherRoads = uniqueWeatherRoads.filter(r => !existingRoutes.has(r.route));
       dangerousRoads = [...dangerousRoads, ...newWeatherRoads];
-      console.log(`[Map API] Added ${newWeatherRoads.length} weather-based roads (grouped by route). Total dangerous roads: ${dangerousRoads.length}`);
+      console.log(`[Map API] Added ${newWeatherRoads.length} weather-based roads with area indicators. Total dangerous roads: ${dangerousRoads.length}`);
     }
     
     return NextResponse.json({
