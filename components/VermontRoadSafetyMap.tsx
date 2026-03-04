@@ -489,13 +489,73 @@ function DetailedRoadAssessment({ assessment }: { assessment: DetailedAssessment
   );
 }
 
+interface RoadSearchResult {
+  success: boolean;
+  assessment: {
+    route: string;
+    safetyRating: 'excellent' | 'good' | 'caution' | 'poor' | 'hazardous';
+    safetyScore: number;
+    severity: 'low' | 'moderate' | 'high' | 'extreme';
+    temperatureF: number;
+    condition: string;
+    roadCondition: string;
+    criticalWarnings: string[];
+    recommendations: Array<{
+      priority: string;
+      action: string;
+      reasoning: string;
+    }>;
+    travelAdvice: {
+      recommended: boolean;
+      urgency: string;
+      estimatedDifficulty: string;
+      estimatedTravelTime: string;
+    };
+    factors: Record<string, unknown>;
+    dataQuality: {
+      confidence: number;
+      dataSources: string[];
+    };
+  };
+  searchQuery?: string;
+}
+
 export default function VermontRoadSafetyMap() {
   const [mapData, setMapData] = useState<MapData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchLoading, setSearchLoading] = useState(false);
+  const [searchResult, setSearchResult] = useState<RoadSearchResult | null>(null);
+  const [searchError, setSearchError] = useState<string | null>(null);
   
   // Center on Vermont (approximately central point)
   const vermontCenter: [number, number] = [44.2664, -72.5805];
+  
+  const handleSearch = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!searchQuery.trim()) return;
+    
+    setSearchLoading(true);
+    setSearchError(null);
+    setSearchResult(null);
+    
+    try {
+      const response = await fetch(`/api/road/safety-assessment?q=${encodeURIComponent(searchQuery.trim())}`);
+      const data = await response.json();
+      
+      if (!response.ok) {
+        throw new Error(data.error || data.details || 'Failed to search road');
+      }
+      
+      setSearchResult(data);
+    } catch (err) {
+      console.error('Search error:', err);
+      setSearchError(err instanceof Error ? err.message : 'Failed to search road');
+    } finally {
+      setSearchLoading(false);
+    }
+  };
   
   useEffect(() => {
     async function fetchMapData() {
@@ -558,6 +618,125 @@ export default function VermontRoadSafetyMap() {
               Predictions based on real-time weather data. Conditions may change - use caution and check official sources.
             </p>
           </div>
+        </div>
+        
+        {/* Road Search Feature */}
+        <div className="bg-white p-4 rounded-lg border border-gray-200 mb-3">
+          <h4 className="text-sm font-bold font-cormorant text-gray-700 mb-2">Search for a Road</h4>
+          <form onSubmit={handleSearch} className="flex gap-2">
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="e.g., I-89, US Route 7, I-89 Burlington"
+              className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm font-cormorant focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+            <button
+              type="submit"
+              disabled={searchLoading || !searchQuery.trim()}
+              className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-cormorant font-semibold hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {searchLoading ? 'Searching...' : 'Search'}
+            </button>
+          </form>
+          
+          {/* Search Results */}
+          {searchResult && searchResult.success && (
+            <div className="mt-4 p-4 bg-gray-50 rounded-lg border border-gray-200">
+              <div className="flex items-center justify-between mb-3">
+                <h5 className="text-lg font-bold font-cormorant text-gray-800">
+                  {searchResult.assessment.route}
+                </h5>
+                <div className={`px-3 py-1 rounded-full text-sm font-bold font-cormorant ${
+                  searchResult.assessment.safetyRating === 'excellent' ? 'bg-green-100 text-green-800' :
+                  searchResult.assessment.safetyRating === 'good' ? 'bg-blue-100 text-blue-800' :
+                  searchResult.assessment.safetyRating === 'caution' ? 'bg-yellow-100 text-yellow-800' :
+                  searchResult.assessment.safetyRating === 'poor' ? 'bg-orange-100 text-orange-800' :
+                  'bg-red-100 text-red-800'
+                }`}>
+                  {searchResult.assessment.safetyRating.toUpperCase()} ({searchResult.assessment.safetyScore}/100)
+                </div>
+              </div>
+              
+              <div className="space-y-2 text-sm font-cormorant">
+                <p className="text-gray-700">
+                  <span className="font-semibold">Condition:</span> {searchResult.assessment.condition}
+                </p>
+                <p className="text-gray-700">
+                  <span className="font-semibold">Road Surface:</span> {searchResult.assessment.roadCondition}
+                </p>
+                <p className="text-gray-700">
+                  <span className="font-semibold">Temperature:</span> {searchResult.assessment.temperatureF}°F
+                </p>
+                <p className="text-gray-700">
+                  <span className="font-semibold">Severity:</span> {searchResult.assessment.severity}
+                </p>
+                
+                {searchResult.assessment.criticalWarnings.length > 0 && (
+                  <div className="mt-3 p-2 bg-red-50 border border-red-200 rounded">
+                    <p className="font-semibold text-red-800 mb-1">⚠️ Critical Warnings:</p>
+                    <ul className="list-disc list-inside text-red-700 space-y-1">
+                      {searchResult.assessment.criticalWarnings.map((warning, idx) => (
+                        <li key={idx} className="text-xs">{warning}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                
+                <div className="mt-3 p-2 bg-blue-50 border border-blue-200 rounded">
+                  <p className="font-semibold text-blue-800 mb-1">Travel Advice:</p>
+                  <p className="text-blue-700 text-xs">
+                    <span className="font-semibold">Recommended:</span> {searchResult.assessment.travelAdvice.recommended ? 'Yes' : 'No'}
+                  </p>
+                  <p className="text-blue-700 text-xs">
+                    <span className="font-semibold">Urgency:</span> {searchResult.assessment.travelAdvice.urgency.replace('_', ' ')}
+                  </p>
+                  <p className="text-blue-700 text-xs">
+                    <span className="font-semibold">Difficulty:</span> {searchResult.assessment.travelAdvice.estimatedDifficulty}
+                  </p>
+                  <p className="text-blue-700 text-xs">
+                    <span className="font-semibold">Travel Time:</span> {searchResult.assessment.travelAdvice.estimatedTravelTime}
+                  </p>
+                </div>
+                
+                {searchResult.assessment.recommendations.length > 0 && (
+                  <div className="mt-3">
+                    <p className="font-semibold text-gray-800 mb-1">Recommendations:</p>
+                    <ul className="space-y-1">
+                      {searchResult.assessment.recommendations.slice(0, 3).map((rec, idx) => (
+                        <li key={idx} className="text-xs text-gray-700">
+                          <span className="font-semibold">{rec.priority}:</span> {rec.action} - {rec.reasoning}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                
+                <p className="text-xs text-gray-500 mt-2 italic">
+                  Confidence: {searchResult.assessment.dataQuality.confidence}% | 
+                  Sources: {searchResult.assessment.dataQuality.dataSources.join(', ')}
+                </p>
+              </div>
+              
+              <button
+                onClick={() => {
+                  setSearchResult(null);
+                  setSearchQuery('');
+                }}
+                className="mt-3 text-xs text-gray-500 hover:text-gray-700 font-cormorant"
+              >
+                Close
+              </button>
+            </div>
+          )}
+          
+          {searchError && (
+            <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-lg">
+              <p className="text-sm text-red-700 font-cormorant">
+                ⚠️ {searchError}
+              </p>
+            </div>
+          )}
         </div>
         <div className="bg-white p-3 rounded-lg border border-gray-200 mb-3">
           <p className="text-xs font-semibold font-cormorant text-gray-700 mb-2">Safety Level Legend:</p>
