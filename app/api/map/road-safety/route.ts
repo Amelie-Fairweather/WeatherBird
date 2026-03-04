@@ -180,10 +180,28 @@ export async function GET(request: Request) {
           }
           
           // Create condition with accurate location-specific data
-          // Use a more descriptive route name that might match highways
-          const routeName = condition === 'ice' || condition === 'snow-covered' || condition === 'wet' 
-            ? `${location.name} Area Roads` 
-            : `${location.name} Area`;
+          // Use specific road names based on location
+          let routeName = `${location.name} Area`;
+          
+          // Map locations to specific major roads
+          const locationRoads: Record<string, string[]> = {
+            'Burlington': ['I-89', 'US Route 7', 'VT Route 127'],
+            'Montpelier': ['I-89', 'US Route 2', 'VT Route 12'],
+            'Rutland': ['US Route 7', 'US Route 4', 'VT Route 100'],
+            'Brattleboro': ['I-91', 'US Route 5', 'VT Route 9'],
+            'St. Albans': ['I-89', 'US Route 7', 'VT Route 78'],
+            'Barre': ['I-89', 'US Route 302', 'VT Route 14'],
+            'White River Junction': ['I-89', 'I-91', 'US Route 5'],
+            'Middlebury': ['US Route 7', 'VT Route 30', 'VT Route 125'],
+            'Bennington': ['US Route 7', 'US Route 9', 'VT Route 9'],
+            'Essex Junction': ['I-89', 'US Route 2', 'VT Route 15'],
+          };
+          
+          // Use first major road for this location, or default to area name
+          const roads = locationRoads[location.name] || [];
+          if (roads.length > 0) {
+            routeName = roads[0]; // Use the primary road (usually interstate/highway)
+          }
           
           return {
             route: routeName,
