@@ -327,6 +327,8 @@ export async function GET(request: Request) {
           ] as Array<[number, number]>,
           warning: c.warning,
           routeId: `weather-${c.route.toLowerCase().replace(/\s+/g, '-')}-${i}`,
+          // Add confidence/accuracy note - predictions are based on weather APIs, not 100% guaranteed
+          confidence: 'Weather-based prediction - conditions may change',
         };
       });
       
