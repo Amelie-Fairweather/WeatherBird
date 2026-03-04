@@ -311,8 +311,22 @@ export async function GET(request: Request) {
     // This guarantees data flows to frontend
     const weatherBased = roadConditions.filter(c => c.source === 'Weather-Based Prediction' && c.latitude && c.longitude);
     if (weatherBased.length > 0) {
-      // Create roads from weather-based conditions (always include these)
-      const weatherRoads: Awaited<ReturnType<typeof identifyDangerousRoads>> = weatherBased.map((c, i) => {
+      // Group roads by route name - each road appears only once
+      // Use the WORST condition along the road to determine if it's dangerous or safe
+      const roadsByRoute = new Map<string, {
+        route: string;
+        conditions: Array<{
+          condition: string;
+          score: number;
+          level: 'excellent' | 'good' | 'caution' | 'poor' | 'hazardous';
+          lat: number;
+          lon: number;
+          warning?: string;
+          description?: string;
+        }>;
+      }>();
+      
+      weatherBased.forEach((c) => {
         const lat = c.latitude!;
         const lon = c.longitude!;
         // Determine safety score from condition
@@ -332,29 +346,58 @@ export async function GET(request: Request) {
           safetyLevel = 'excellent';
         }
         
-        return {
-          route: c.route,
-          condition: c.condition as 'clear' | 'wet' | 'snow-covered' | 'ice' | 'closed' | 'unknown',
-          severity: (safetyScore < 40 ? 'high' : safetyScore < 60 ? 'moderate' : 'low') as 'low' | 'moderate' | 'high' | 'extreme',
-          safetyLevel,
-          safetyScore,
+        const routeName = c.route;
+        if (!roadsByRoute.has(routeName)) {
+          roadsByRoute.set(routeName, {
+            route: routeName,
+            conditions: []
+          });
+        }
+        
+        roadsByRoute.get(routeName)!.conditions.push({
+          condition: c.condition,
+          score: safetyScore,
+          level: safetyLevel,
+          lat,
+          lon,
+          warning: c.warning,
           description: c.warning || `${c.condition} conditions`,
+        });
+      });
+      
+      // Create one road entry per route, using the WORST condition
+      const weatherRoads: Awaited<ReturnType<typeof identifyDangerousRoads>> = Array.from(roadsByRoute.values()).map((roadData, i) => {
+        // Find the worst condition along this road
+        const worstCondition = roadData.conditions.reduce((worst, current) => {
+          // Lower score = worse condition
+          return current.score < worst.score ? current : worst;
+        });
+        
+        // Use coordinates from the worst condition location
+        const lat = worstCondition.lat;
+        const lon = worstCondition.lon;
+        
+        return {
+          route: roadData.route,
+          condition: worstCondition.condition as 'clear' | 'wet' | 'snow-covered' | 'ice' | 'closed' | 'unknown',
+          severity: (worstCondition.score < 40 ? 'high' : worstCondition.score < 60 ? 'moderate' : 'low') as 'low' | 'moderate' | 'high' | 'extreme',
+          safetyLevel: worstCondition.level,
+          safetyScore: worstCondition.score,
+          description: worstCondition.warning || worstCondition.description || `${worstCondition.condition} conditions`,
           coordinates: [
             [lat - 0.02, lon - 0.02],
             [lat + 0.02, lon + 0.02]
           ] as Array<[number, number]>,
-          warning: c.warning,
-          routeId: `weather-${c.route.toLowerCase().replace(/\s+/g, '-')}-${i}`,
-          // Add confidence/accuracy note - predictions are based on weather APIs, not 100% guaranteed
-          confidence: 'Weather-based prediction - conditions may change',
+          warning: worstCondition.warning,
+          routeId: `weather-${roadData.route.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '')}`,
         };
       });
       
-      // Merge with existing dangerous roads (avoid duplicates)
-      const existingRouteIds = new Set(dangerousRoads.map(r => r.routeId));
-      const newWeatherRoads = weatherRoads.filter(r => !existingRouteIds.has(r.routeId));
+      // Merge with existing dangerous roads (avoid duplicates by route name)
+      const existingRoutes = new Set(dangerousRoads.map(r => r.route));
+      const newWeatherRoads = weatherRoads.filter(r => !existingRoutes.has(r.route));
       dangerousRoads = [...dangerousRoads, ...newWeatherRoads];
-      console.log(`[Map API] Added ${newWeatherRoads.length} weather-based roads. Total dangerous roads: ${dangerousRoads.length}`);
+      console.log(`[Map API] Added ${newWeatherRoads.length} weather-based roads (grouped by route). Total dangerous roads: ${dangerousRoads.length}`);
     }
     
     return NextResponse.json({

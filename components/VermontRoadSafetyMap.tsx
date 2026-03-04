@@ -817,15 +817,29 @@ export default function VermontRoadSafetyMap() {
       {/* Dangerous Roads and Safe Roads Sections - Matching Swift App Design */}
       {mapData?.dangerousRoads && mapData.dangerousRoads.length > 0 && (
         <div className="mt-4 space-y-4">
-          {/* Split roads into dangerous and safe - each road appears in ONLY ONE section */}
+          {/* Group roads by route name to avoid duplicates - each road appears ONLY ONCE */}
           {(() => {
-            const dangerousRoads = mapData.dangerousRoads.filter(road => 
+            // Group roads by route name, keeping only the worst condition for each route
+            const roadsByRoute = new Map<string, typeof mapData.dangerousRoads[0]>();
+            
+            mapData.dangerousRoads.forEach(road => {
+              const routeName = road.route;
+              const existing = roadsByRoute.get(routeName);
+              
+              // If road doesn't exist yet, or this one has a worse condition (lower score), use this one
+              if (!existing || road.safetyScore < existing.safetyScore) {
+                roadsByRoute.set(routeName, road);
+              }
+            });
+            
+            // Split into dangerous and safe - each road appears in ONLY ONE section
+            const dangerousRoads = Array.from(roadsByRoute.values()).filter(road => 
               road.safetyLevel === 'caution' || 
               road.safetyLevel === 'poor' || 
               road.safetyLevel === 'hazardous'
             );
             
-            const safeRoads = mapData.dangerousRoads.filter(road => 
+            const safeRoads = Array.from(roadsByRoute.values()).filter(road => 
               road.safetyLevel === 'excellent' || 
               road.safetyLevel === 'good'
             );
@@ -841,7 +855,7 @@ export default function VermontRoadSafetyMap() {
                     </div>
                     <div className="space-y-2">
                       {dangerousRoads.map((road, index) => (
-                        <div key={road.routeId || index} className="flex items-start justify-between p-2 bg-white rounded border border-red-100">
+                        <div key={road.routeId || `dangerous-${road.route}-${index}`} className="flex items-start justify-between p-2 bg-white rounded border border-red-100">
                           <div className="flex-1">
                             <div className="flex items-center gap-2 mb-1">
                               <span className="text-red-600 text-lg">⚠️</span>
@@ -875,7 +889,7 @@ export default function VermontRoadSafetyMap() {
                     </div>
                     <div className="space-y-2">
                       {safeRoads.map((road, index) => (
-                        <div key={road.routeId || index} className="flex items-start justify-between p-2 bg-white rounded border border-green-100">
+                        <div key={road.routeId || `safe-${road.route}-${index}`} className="flex items-start justify-between p-2 bg-white rounded border border-green-100">
                           <div className="flex-1">
                             <div className="flex items-center gap-2 mb-1">
                               <span className="text-green-600 text-lg">✓</span>
