@@ -545,13 +545,18 @@ export default function VermontRoadSafetyMap() {
       const data = await response.json();
       
       if (!response.ok) {
-        throw new Error(data.error || data.details || 'Failed to search road');
+        // Build a more helpful error message
+        const errorMsg = data.error || 'Failed to search road';
+        const details = data.details ? `\n\n${data.details}` : '';
+        const suggestion = data.suggestion ? `\n\n💡 Suggestion: ${data.suggestion}` : '';
+        throw new Error(`${errorMsg}${details}${suggestion}`);
       }
       
       setSearchResult(data);
     } catch (err) {
       console.error('Search error:', err);
-      setSearchError(err instanceof Error ? err.message : 'Failed to search road');
+      const errorMessage = err instanceof Error ? err.message : 'Failed to search road';
+      setSearchError(errorMessage);
     } finally {
       setSearchLoading(false);
     }
@@ -732,7 +737,7 @@ export default function VermontRoadSafetyMap() {
           
           {searchError && (
             <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-lg">
-              <p className="text-sm text-red-700 font-cormorant">
+              <p className="text-sm text-red-700 font-cormorant whitespace-pre-line">
                 ⚠️ {searchError}
               </p>
             </div>

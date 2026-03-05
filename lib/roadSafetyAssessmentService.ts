@@ -106,19 +106,75 @@ export async function calculateRoadSafetyAssessment(
   const assessmentLocation = location || 'Vermont';
   
   // Fetch comprehensive weather data
-  const weatherData = await fetchWeatherFromProvider(assessmentLocation, 'auto');
-  const roadConditions = await fetchAllRoadConditions(assessmentLocation);
+  let weatherData;
+  try {
+    weatherData = await fetchWeatherFromProvider(assessmentLocation, 'auto');
+  } catch (error) {
+    // Fallback to general Vermont weather if location-specific fails
+    console.warn(`[Road Safety] Failed to fetch weather for ${assessmentLocation}, trying Vermont:`, error);
+    weatherData = await fetchWeatherFromProvider('Vermont', 'auto');
+  }
+  
+  let roadConditions;
+  try {
+    roadConditions = await fetchAllRoadConditions(assessmentLocation);
+  } catch (error) {
+    console.warn(`[Road Safety] Failed to fetch road conditions for ${assessmentLocation}:`, error);
+    roadConditions = []; // Empty array, will use general weather-based assessment
+  }
   
   // Find specific road condition for this route
-  const routeCondition = roadConditions.find(rc => 
+  // Try multiple matching strategies for better results
+  let routeCondition = roadConditions.find(rc => 
     rc.route.toLowerCase().includes(route.toLowerCase()) ||
     route.toLowerCase().includes(rc.route.toLowerCase())
-  ) || roadConditions[0]; // Fallback to general conditions
+  );
+  
+  // If no exact match, try matching just the road name part (e.g., "Spear" from "Spear Street")
+  if (!routeCondition && route.includes(' ')) {
+    const roadName = route.split(' ')[0]; // Get first word (e.g., "Spear")
+    routeCondition = roadConditions.find(rc => 
+      rc.route.toLowerCase().includes(roadName.toLowerCase())
+    );
+  }
   
   const tempF = Math.round((weatherData.temperature * 9/5) + 32);
   const windMph = Math.round(weatherData.windSpeed * 2.237);
   const humidity = weatherData.humidity;
   const desc = weatherData.description.toLowerCase();
+  
+  // Fallback to general conditions or create a weather-based condition
+  if (!routeCondition) {
+    // Derive road condition from weather data
+    let weatherBasedCondition: 'clear' | 'wet' | 'snow-covered' | 'ice' | 'closed' | 'unknown' = 'unknown';
+    
+    // Determine condition based on weather description and temperature
+    if (desc.includes('freezing rain') || (desc.includes('rain') && tempF <= 32)) {
+      weatherBasedCondition = 'ice';
+    } else if (desc.includes('sleet')) {
+      weatherBasedCondition = 'ice';
+    } else if (desc.includes('snow')) {
+      weatherBasedCondition = 'snow-covered';
+    } else if (desc.includes('rain') || desc.includes('drizzle')) {
+      weatherBasedCondition = 'wet';
+    } else if (tempF <= 32 && (desc.includes('cloud') || desc.includes('overcast'))) {
+      // Cold and cloudy - potential for ice
+      weatherBasedCondition = 'wet'; // Will be assessed as potential ice risk
+    } else if (desc.includes('clear') || desc.includes('sunny') || desc.includes('fair')) {
+      weatherBasedCondition = 'clear';
+    }
+    
+    routeCondition = roadConditions[0] || {
+      route: route,
+      condition: weatherBasedCondition,
+      temperature: tempF,
+      source: 'Weather-Based Prediction',
+      timestamp: new Date().toISOString(),
+      warning: weatherBasedCondition === 'unknown' 
+        ? 'Road condition estimated from weather data. Actual conditions may vary.'
+        : `Condition estimated from current weather: ${desc}. Use caution and check official sources.`,
+    };
+  }
   
   // Calculate time of day risk
   const now = new Date();

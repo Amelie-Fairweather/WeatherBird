@@ -91,13 +91,33 @@ export async function GET(request: Request) {
 
     console.log(`[Road Search] Searching for route: "${route}" in location: "${location}"`);
 
-    const assessment = await calculateRoadSafetyAssessment(route, location);
+    let assessment;
+    try {
+      assessment = await calculateRoadSafetyAssessment(route, location);
+    } catch (assessmentError) {
+      console.error(`[Road Search] Assessment calculation error:`, assessmentError);
+      // Try with just "Vermont" as location as fallback
+      try {
+        assessment = await calculateRoadSafetyAssessment(route, 'Vermont');
+      } catch (fallbackError) {
+        console.error(`[Road Search] Fallback also failed:`, fallbackError);
+        return NextResponse.json(
+          {
+            error: 'Unable to generate predictions',
+            details: assessmentError instanceof Error ? assessmentError.message : 'Failed to calculate road safety assessment. The road may not be in our database, or there was an error fetching weather data.',
+            suggestion: 'Try searching for major roads like "I-89", "US Route 7", or include a city name like "I-89 Burlington"',
+          },
+          { status: 500 }
+        );
+      }
+    }
 
     if (!assessment) {
       return NextResponse.json(
         {
           error: 'Unable to generate predictions',
-          details: 'Assessment calculation returned no data',
+          details: 'Assessment calculation returned no data. This may happen for local streets that are not in our database.',
+          suggestion: 'Try searching for major highways like "I-89" or "US Route 7", or include a Vermont city name.',
         },
         { status: 500 }
       );
@@ -120,6 +140,7 @@ export async function GET(request: Request) {
         {
           error: 'Unable to generate predictions',
           details: 'Failed to fetch weather data. Please try again in a moment.',
+          suggestion: 'Weather APIs may be temporarily unavailable. Try again in a few moments.',
         },
         { status: 503 }
       );
@@ -130,6 +151,7 @@ export async function GET(request: Request) {
         {
           error: 'Unable to generate predictions',
           details: 'Failed to fetch road condition data. Please try again in a moment.',
+          suggestion: 'Road condition APIs may be temporarily unavailable.',
         },
         { status: 503 }
       );
@@ -139,6 +161,7 @@ export async function GET(request: Request) {
       {
         error: 'Unable to generate predictions',
         details: errorMessage,
+        suggestion: 'Try searching for major roads like "I-89", "US Route 7", or include a Vermont city name like "I-89 Burlington". Local street names may not be in our database.',
       },
       { status: 500 }
     );

@@ -141,19 +141,17 @@ export default function MyComponent() {
           opacity: imageOpacity
         }}
       >
-        {/* Video Background */}
-        <video
-          ref={videoRef}
-          autoPlay
-          loop
-          muted
-          playsInline
-          preload="auto"
-          className="absolute inset-0 w-full h-full object-cover z-0"
-          style={{ transform: imageTransform }}
-        >
-          <source src="/winter.mp4" type="video/mp4" />
-        </video>
+        {/* Landscape Background Image */}
+        <div 
+          className="absolute inset-0 w-full h-full z-0"
+          style={{ 
+            backgroundImage: 'url(/images/poster-background.png)',
+            backgroundSize: 'cover',
+            backgroundPosition: 'center',
+            backgroundRepeat: 'no-repeat',
+            transform: imageTransform
+          }}
+        />
         {/* Dark overlay for better text readability */}
         <div className="absolute inset-0 bg-black/40 z-0"></div>
         {/* Navigation Buttons - inside hero section to move with parallax */}
