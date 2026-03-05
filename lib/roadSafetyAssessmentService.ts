@@ -115,7 +115,7 @@ export async function calculateRoadSafetyAssessment(
     weatherData = await fetchWeatherFromProvider('Vermont', 'auto');
   }
   
-  let roadConditions;
+  let roadConditions: RoadCondition[];
   try {
     roadConditions = await fetchAllRoadConditions(assessmentLocation);
   } catch (error) {
