@@ -107,7 +107,24 @@ export async function fetchXweatherRoadWeather(location: string): Promise<Xweath
 
   if (!response.ok) {
     const errorText = await response.text().catch(() => 'Unknown error');
-    console.error(`[Xweather] API error ${response.status} ${response.statusText}: ${errorText.substring(0, 200)}`);
+    let errorData;
+    try {
+      errorData = JSON.parse(errorText);
+    } catch {
+      errorData = { error: { code: response.statusText, description: errorText } };
+    }
+    
+    // Check for specific error types
+    if (response.status === 401) {
+      const errorCode = errorData?.error?.code || 'unauthorized';
+      if (errorCode === 'insufficient_scope') {
+        console.warn(`[Xweather] API key lacks required permissions (insufficient_scope). Road Weather API may require a paid plan or additional API scopes. Skipping Xweather road conditions.`);
+      } else {
+        console.warn(`[Xweather] API authentication failed (401). Check XWEATHER_CLIENT_ID and XWEATHER_CLIENT_SECRET. Skipping Xweather road conditions.`);
+      }
+    } else {
+      console.error(`[Xweather] API error ${response.status} ${response.statusText}: ${errorText.substring(0, 200)}`);
+    }
     // Return empty array on error - allow other sources to continue working
     return [];
   }
@@ -184,6 +201,23 @@ export async function fetchXweatherWeather(location: string): Promise<WeatherDat
 
   if (!response.ok) {
     const errorText = await response.text().catch(() => 'Unknown error');
+    let errorData;
+    try {
+      errorData = JSON.parse(errorText);
+    } catch {
+      errorData = { error: { code: response.statusText, description: errorText } };
+    }
+    
+    // Check for specific error types
+    if (response.status === 401) {
+      const errorCode = errorData?.error?.code || 'unauthorized';
+      if (errorCode === 'insufficient_scope') {
+        throw new Error('Xweather API key lacks required permissions (insufficient_scope). The Conditions API may require a paid plan or additional API scopes.');
+      } else {
+        throw new Error('Xweather API authentication failed (401). Check XWEATHER_CLIENT_ID and XWEATHER_CLIENT_SECRET.');
+      }
+    }
+    
     console.error(`[Xweather] API error ${response.status} ${response.statusText}: ${errorText.substring(0, 200)}`);
     throw new Error(`Xweather API error: ${response.statusText} - ${errorText.substring(0, 100)}`);
   }
@@ -373,7 +407,24 @@ export async function fetchXweatherAlerts(location: string = ':auto', limit: num
 
     if (!response.ok) {
       const errorText = await response.text().catch(() => 'Unknown error');
-      console.error(`[Xweather] Alerts API error ${response.status} ${response.statusText}: ${errorText.substring(0, 200)}`);
+      let errorData;
+      try {
+        errorData = JSON.parse(errorText);
+      } catch {
+        errorData = { error: { code: response.statusText, description: errorText } };
+      }
+      
+      // Check for specific error types
+      if (response.status === 401) {
+        const errorCode = errorData?.error?.code || 'unauthorized';
+        if (errorCode === 'insufficient_scope') {
+          console.warn(`[Xweather] API key lacks required permissions (insufficient_scope) for Alerts API. Skipping Xweather alerts.`);
+        } else {
+          console.warn(`[Xweather] Alerts API authentication failed (401). Check XWEATHER_CLIENT_ID and XWEATHER_CLIENT_SECRET.`);
+        }
+      } else {
+        console.error(`[Xweather] Alerts API error ${response.status} ${response.statusText}: ${errorText.substring(0, 200)}`);
+      }
       return [];
     }
 

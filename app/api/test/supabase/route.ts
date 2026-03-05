@@ -6,15 +6,37 @@
 import { NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabaseClient';
 
+interface TestResult {
+  success: boolean;
+  error?: string;
+  data?: unknown;
+}
+
+interface TestResults {
+  timestamp: string;
+  environmentVariables: {
+    supabaseUrl: boolean;
+    supabaseKey: boolean;
+    supabaseUrlValue: string;
+  };
+  tests: Record<string, TestResult>;
+  summary?: {
+    totalTests: number;
+    passedTests: number;
+    failedTests: number;
+    overallStatus: string;
+  };
+}
+
 export async function GET() {
-  const results: Record<string, unknown> = {
+  const results: TestResults = {
     timestamp: new Date().toISOString(),
     environmentVariables: {
       supabaseUrl: !!process.env.NEXT_PUBLIC_SUPABASE_URL,
       supabaseKey: !!process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
       supabaseUrlValue: process.env.NEXT_PUBLIC_SUPABASE_URL?.substring(0, 30) + '...' || 'NOT SET',
     },
-    tests: {} as Record<string, { success: boolean; error?: string; data?: unknown }>,
+    tests: {},
   };
 
   // Test 1: Check if we can connect to Supabase
