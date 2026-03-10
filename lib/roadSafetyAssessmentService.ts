@@ -5,6 +5,8 @@
 
 import { fetchAllRoadConditions, RoadCondition } from './roadDataService';
 import { fetchWeatherFromProvider } from './unifiedWeatherService';
+import { fetchNWSAlerts } from './nwsService';
+import { fetchXweatherAlerts } from './xweatherService';
 
 export interface RoadSafetyAssessment {
   route: string;
@@ -123,6 +125,25 @@ export async function calculateRoadSafetyAssessment(
     roadConditions = []; // Empty array, will use general weather-based assessment
   }
   
+  // Fetch flood warnings from NWS and Xweather
+  let floodWarnings: any[] = [];
+  try {
+    const [nwsAlerts, xweatherAlerts] = await Promise.all([
+      fetchNWSAlerts('VT').catch(() => []),
+      fetchXweatherAlerts(assessmentLocation, 20).catch(() => []),
+    ]);
+    
+    // Extract flood-related alerts
+    const allAlerts = [...nwsAlerts, ...xweatherAlerts];
+    floodWarnings = allAlerts.filter((alert: any) => {
+      const properties = alert.properties || {};
+      const eventType = (properties.eventType || properties.event || alert.type || alert.name || '').toLowerCase();
+      return eventType.includes('flood');
+    });
+  } catch (error) {
+    console.warn(`[Road Safety] Failed to fetch flood warnings:`, error);
+  }
+  
   // Find specific road condition for this route
   // Try multiple matching strategies for better results
   let routeCondition = roadConditions.find(rc => 
@@ -184,8 +205,8 @@ export async function calculateRoadSafetyAssessment(
   // Factor 1: Temperature Risk (0-25 points)
   const temperatureRisk = calculateTemperatureRisk(tempF, humidity);
   
-  // Factor 2: Precipitation Risk (0-30 points)
-  const precipitationRisk = calculatePrecipitationRisk(desc, tempF, weatherData.temperature);
+  // Factor 2: Precipitation Risk (0-30 points) - includes flood detection
+  const precipitationRisk = calculatePrecipitationRisk(desc, tempF, weatherData.temperature, floodWarnings);
   
   // Factor 3: Road Surface Risk (0-30 points)
   const roadSurfaceRisk = calculateRoadSurfaceRisk(routeCondition, tempF);
@@ -235,6 +256,20 @@ export async function calculateRoadSafetyAssessment(
   }
   if (routeCondition.condition === 'closed') {
     criticalWarnings.push(`⚠️ ROAD CLOSED - Do not attempt to travel this route`);
+  }
+  
+  // Add flood warnings to critical warnings
+  if (floodWarnings.length > 0) {
+    floodWarnings.forEach((warning: any) => {
+      const properties = warning.properties || {};
+      const title = properties.headline || properties.event || warning.title || warning.name || 'Flood Warning';
+      const severity = (properties.severity || warning.severity || 'moderate').toLowerCase();
+      if (severity === 'extreme' || severity === 'severe' || severity === 'major') {
+        criticalWarnings.push(`🚨 FLOOD WARNING: ${title} - Avoid flooded areas, do not drive through standing water`);
+      } else {
+        criticalWarnings.push(`⚠️ Flood Advisory: ${title} - Exercise caution near water`);
+      }
+    });
   }
   
   // Generate recommendations
@@ -334,14 +369,38 @@ function calculateTemperatureRisk(tempF: number, humidity: number): RoadSafetyAs
 function calculatePrecipitationRisk(
   description: string,
   tempF: number,
-  tempC: number
+  tempC: number,
+  floodWarnings: any[] = []
 ): RoadSafetyAssessment['factors']['precipitationRisk'] {
   let score = 0;
   let level: 'low' | 'moderate' | 'high' | 'extreme' = 'low';
   let type = 'none';
   const details: string[] = [];
   
-  if (description.includes('freezing rain') || (description.includes('rain') && tempC <= 0)) {
+  // Check for flood warnings first (highest priority)
+  if (floodWarnings.length > 0) {
+    const hasExtremeFlood = floodWarnings.some((w: any) => {
+      const severity = ((w.properties || {}).severity || w.severity || '').toLowerCase();
+      return severity === 'extreme' || severity === 'severe' || severity === 'major' || severity === 'record';
+    });
+    
+    if (hasExtremeFlood) {
+      score = 30;
+      level = 'extreme';
+      type = 'flood';
+      details.push(`🚨 ACTIVE FLOOD WARNING - Extremely dangerous`);
+      details.push(`Do not drive through flooded areas - turn around, don't drown`);
+      details.push(`Water depth can be deceptive - 6 inches can stall vehicles`);
+      details.push(`Avoid travel if possible`);
+    } else {
+      score = 25;
+      level = 'high';
+      type = 'flood advisory';
+      details.push(`⚠️ Flood Advisory in effect`);
+      details.push(`Exercise extreme caution near water`);
+      details.push(`Do not attempt to cross flooded roads`);
+    }
+  } else if (description.includes('freezing rain') || (description.includes('rain') && tempC <= 0)) {
     score = 30;
     level = 'extreme';
     type = 'freezing rain';
@@ -354,6 +413,13 @@ function calculatePrecipitationRisk(
     type = 'sleet';
     details.push(`Sleet - Very dangerous conditions`);
     details.push(`Creates slippery ice pellets on road`);
+  } else if (description.includes('heavy rain') || description.includes('torrential')) {
+    score = 20;
+    level = 'high';
+    type = 'heavy rain';
+    details.push(`Heavy rain - potential for flooding`);
+    details.push(`Reduced visibility and traction`);
+    details.push(`Watch for standing water on roads`);
   } else if (description.includes('snow') && tempF <= 32) {
     score = 25;
     level = 'high';
@@ -664,6 +730,20 @@ function generateRecommendations(
     return recommendations;
   }
   
+  // Flood-specific recommendations (highest priority)
+  if (precipRisk.type === 'flood' || precipRisk.type === 'flood advisory') {
+    recommendations.push({
+      priority: 'critical',
+      action: 'DO NOT DRIVE THROUGH FLOODED AREAS - Turn around, don\'t drown',
+      reasoning: 'Flood waters can be deeper than they appear. Just 6 inches of water can stall most vehicles, and 12 inches can carry away a car. Water depth is deceptive and currents are strong.',
+    });
+    recommendations.push({
+      priority: 'critical',
+      action: 'Find alternate route immediately',
+      reasoning: 'Flooded roads may be washed out or have hidden damage. Never attempt to cross standing water.',
+    });
+  }
+  
   if (blackIceRisk.level === 'extreme' || tempRisk.level === 'extreme') {
     recommendations.push({
       priority: 'critical',
@@ -672,7 +752,7 @@ function generateRecommendations(
     });
   }
   
-  if (precipRisk.level === 'extreme') {
+  if (precipRisk.level === 'extreme' && precipRisk.type !== 'flood') {
     recommendations.push({
       priority: 'critical',
       action: 'Avoid travel - extreme precipitation',
