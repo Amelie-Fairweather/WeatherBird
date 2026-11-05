@@ -298,10 +298,10 @@ export async function fetchVTransLaneClosureData(xmlData?: string): Promise<VTra
       return parseVTransLaneClosureXML(xmlData);
     }
     
-    // Fetch from New England Compass Developer Portal
+    // Live C2C XmlDataPortal (public Developer Portal download links)
     const endpoints = [
+      'https://nec-por.ne-compass.com/NEC.XmlDataPortal/api/c2c?networks=Vermont&dataTypes=laneClosureData',
       'https://nec-por.ne-compass.com/DeveloperPortal/LaneClosures/Vermont',
-      'https://nec-por.ne-compass.com/DeveloperPortal/LaneClosures/Vermont.xml',
     ];
     
     for (const endpoint of endpoints) {

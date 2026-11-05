@@ -11,7 +11,7 @@ import { fetchXweatherAlerts } from './xweatherService';
 export interface RoadSafetyAssessment {
   route: string;
   safetyRating: 'excellent' | 'good' | 'caution' | 'poor' | 'hazardous';
-  safetyScore: number; // 0-100
+  safetyScore: number; 
   severity: 'low' | 'moderate' | 'high' | 'extreme';
   
   // Current conditions

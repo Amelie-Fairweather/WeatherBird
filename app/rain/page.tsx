@@ -32,6 +32,38 @@ interface FloodingData {
   timestamp: string;
 }
 
+function withDemoFloodWarning(data: FloodingData): FloodingData {
+  const now = new Date().toISOString();
+  const demoWarning: FloodWarning = {
+    id: 'demo-flood-warning',
+    location: 'Winooski River - Burlington Area',
+    severity: 'major',
+    status: 'active',
+    description: 'Flood Warning: River levels expected to rise above flood stage overnight. Low-lying roads may become impassable.',
+    waterLevel: 15.2,
+    floodStage: 12.0,
+    timestamp: now,
+  };
+
+  const demoRoadAlert: RoadSafetyAlert = {
+    id: 'demo-road-flood-alert',
+    location: 'US-2 / Riverside Ave',
+    type: 'Flooded Roadway',
+    severity: 'high',
+    status: 'active',
+    description: 'Water reported over roadway in multiple sections. Avoid travel through underpasses and river-adjacent routes.',
+    affectedRoads: ['US-2', 'Riverside Ave', 'Intervale Rd'],
+    timestamp: now,
+  };
+
+  return {
+    ...data,
+    floodWarnings: [demoWarning, ...data.floodWarnings],
+    roadSafetyAlerts: [demoRoadAlert, ...data.roadSafetyAlerts],
+    timestamp: now,
+  };
+}
+
 function getSeverityColor(severity: string): string {
   switch (severity.toLowerCase()) {
     case 'record':
@@ -70,7 +102,8 @@ export default function RainPage() {
         }
         
         const data = await response.json();
-        setFloodingData(data);
+        const showDemoFlood = new URLSearchParams(window.location.search).get('demoFlood') === '1';
+        setFloodingData(showDemoFlood ? withDemoFloodWarning(data) : data);
         setError(null);
       } catch (err) {
         console.error('Error fetching flooding data:', err);

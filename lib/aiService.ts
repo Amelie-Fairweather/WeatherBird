@@ -81,9 +81,10 @@ export async function getWeatherPrediction(request: PredictionRequest): Promise<
     const sourceCount = (currentWeather as any).sourceCount || 1;
     
     context = `\n\n=== CURRENT WEATHER (LIVE API DATA FROM ALL SOURCES) ===\n`;
-    context += `This is REAL-TIME data from weather APIs. Use this as your PRIMARY source.\n`;
+    context += `This is REAL-TIME data from weather APIs. Always weave these values into road/snow-day answers.\n`;
+    context += `When VTrans RWIS is missing, this API weather layer is a primary fallback for travel advice.\n`;
     context += `Data Source: ${source}${sourceCount > 1 ? ` (${sourceCount} sources cross-referenced)` : ''}\n`;
-    context += `NOTE: You have access to data from multiple sources, but DON'T mention this unless asked - just use the data naturally.\n`;
+    context += `NOTE: Integrate API weather with road layers; don't mention source names unless asked.\n`;
     context += `Location: ${currentWeather.location}\n`;
     context += `Temperature: ${celsiusToFahrenheit(currentWeather.temperature)}°F\n`;
     context += `Condition: ${currentWeather.description}\n`;
@@ -131,6 +132,20 @@ export async function getWeatherPrediction(request: PredictionRequest): Promise<
 
 CRITICAL: This system is for GOVERNMENT USE. Accuracy is ABSOLUTELY MANDATORY. 
 
+BE HYPER-SPECIFIC AND DATA-DRIVEN (MANDATORY STYLE):
+- When a ZIP code, town, or district is in the data, name it (e.g. "05401 Burlington", "Champlain Valley SD").
+- Cite concrete numbers from the provided data: °F, inches of snow, friction μ, pavement temp, wind mph, probabilities %.
+- Name nearby VTrans RWIS stations and routes when LOCAL SENSOR / RWIS sections are present (e.g. "I-89 Williston", "US-2 Cabot", "3.2 mi from your ZIP").
+- Prefer local ZIP-scoped sensors over statewide averages when both exist.
+- Do not give vague Vermont-wide answers when ZIP-local data is provided — answer for THAT place.
+- BROADLY INTEGRATE APIs IN EVERY WEATHER/ROAD ANSWER: current weather APIs (NWS/Weatherbit/Xweather/etc.), alerts, TomTom/511 traffic, and VTrans closures — not RWIS-only.
+- VTRANS vs API FALLBACK:
+  * If VTrans RWIS is present → lead with those pavement sensors for local roads, THEN fold in forecast APIs, alerts, and traffic/closures.
+  * If VTrans RWIS is missing / "API FALLBACK MODE" → treat NWS + forecast APIs + TomTom/511 + VTrans closures/incidents as the full answer. Do NOT say you lack road/weather data when those sections have content.
+- Example with RWIS: "For 05403, I-89 Williston is dry (μ=0.82, pavement 66°F). NWS has no winter alerts; TomTom shows no major crashes on that stretch."
+- Example without RWIS: "I don't have a live pavement sensor right there, but NWS shows partly sunny at 64°F for your ZIP and Weatherbit has no snow in the overnight forecast — roads should stay manageable."
+- Example bad answer: "Roads in Vermont look mostly wet today."
+
 YOUR RESPONSES MUST BE 100% ACCURATE - NO EXCEPTIONS:
 - ONLY use data that was EXPLICITLY provided to you
 - NEVER guess, estimate, infer, or assume ANYTHING
@@ -143,15 +158,14 @@ CRITICAL DATA RULES - THESE ARE MANDATORY FOR GOVERNMENT ACCURACY:
 - PRIMARY SOURCE: Always prioritize the "CURRENT WEATHER (LIVE API DATA)" section - this is real-time data from government and commercial weather APIs
 - WEATHER DATA SOURCES: The system tries ALL weather sources (NWS, Weatherbit, Weatherstack, Visual Crossing, Xweather, OpenWeatherMap) and uses the most reliable one. You have access to multiple sources, but DON'T mention sources unless the user specifically asks - just use the data naturally.
 - WEATHER ALERTS (CRITICAL): If "ACTIVE WEATHER ALERTS" section is provided, you MUST factor these alerts into your response. Alerts indicate immediate threats or important weather conditions that take priority over routine weather descriptions. For Severe or Extreme alerts, mention them prominently and provide specific guidance. Alerts are from NWS (government) and Xweather (commercial), so they are verified and reliable.
-- ROAD DATA FROM ALL SOURCES: You have access to road condition data from ALL sources simultaneously:
-  * NWS (National Weather Service) - government weather warnings
-  * TomTom Traffic - real-time traffic incidents with GPS
-  * VTrans RWIS - 40+ sensor stations with real-time conditions
-  * VTrans Lane Closures - construction/maintenance alerts
-  * VTrans Traffic Incidents - accidents/hazards/closures
-  * Xweather - road weather forecasts
+- ROAD DATA LAYERS (integrate broadly; VTrans RWIS preferred when present, APIs always in the mix / as fallback):
+  * VTrans RWIS - live pavement sensors (ground truth WHEN available)
+  * NWS - government weather / road-relevant warnings (always integrate; primary fallback if no RWIS)
+  * Weatherbit / Xweather / other forecast APIs - snow/ice outlook (always integrate)
+  * TomTom Traffic - real-time incidents with GPS (always integrate when present)
+  * VTrans Lane Closures / Incidents - construction, accidents, hazards
   * New England 511 - traffic and road condition data
-  All road data is aggregated from ALL these sources - use this data naturally without mentioning sources unless asked.
+  When RWIS is absent, lean on the API layers above — they are intentional fallbacks, not optional extras.
 - DATA SOURCE CITATION: ONLY mention data sources if the user explicitly asks "where did you get this?" or "what's your source?" Otherwise, just provide the information naturally without citing sources. Sound conversational, not robotic.
 - FACT-CHECKING: All data has been validated and cross-referenced across multiple sources. Trust official sources (VTrans RWIS, NWS) most, then commercial APIs (Weatherbit for forecasts, TomTom for traffic, Xweather for road weather)
 - SECONDARY SOURCE: Historical data is ONLY for context/trends - NEVER use it as current conditions
@@ -283,10 +297,13 @@ BAD EXAMPLES (what NOT to do):
 
   // Add road conditions if available (only if weather-related)
   // CRITICAL: Always include road conditions when available so Maple can independently assess road safety
-  const roadContext = includeWeatherData && roadConditions ? `\n\n=== ROAD CONDITIONS (USE THIS TO INDEPENDENTLY ASSESS ROAD SAFETY) ===
+  const roadContext = includeWeatherData && roadConditions ? `\n\n=== ROAD CONDITIONS (VTrans WHEN PRESENT + API LAYERS ALWAYS) ===
 ${roadConditions}
 
-IMPORTANT: Use this road condition data to make YOUR OWN assessment of road safety. Don't just repeat any provided ratings - analyze the actual conditions yourself.` : '';
+IMPORTANT: Make YOUR OWN road-safety assessment from ALL layers above.
+- If VTrans RWIS stations are listed, cite the closest ones for pavement truth.
+- ALWAYS also use weather APIs, alerts, TomTom/511, and closures/incidents when those sections have data.
+- If the text says API FALLBACK MODE / no VTrans RWIS, answer from NWS + forecast APIs + traffic/closures — do not claim road data is missing.` : '';
 
   // Add knowledge base context if available (only if weather-related)
   const knowledgeBaseContext = includeWeatherData && knowledgeContext 
@@ -386,13 +403,22 @@ CALCULATOR CONTEXT (use as reference, but make YOUR OWN assessment):
     ? `\n\n=== SCHOOL CANCELLATION PREDICTION FOR ${snowDayPrediction.district_name.toUpperCase()} ===
 PREDICTION FOR: ${new Date(snowDayPrediction.predicted_for_date).toLocaleDateString()}
 CONFIDENCE: ${snowDayPrediction.confidence}%
-
+${snowDayPrediction.locationContext ? `
+LOCATION GROUNDING (ZIP → coordinates → local sensors):
+- Place: ${snowDayPrediction.locationContext.displayName}
+${snowDayPrediction.locationContext.zip ? `- ZIP: ${snowDayPrediction.locationContext.zip}` : ''}
+${snowDayPrediction.locationContext.city ? `- City: ${snowDayPrediction.locationContext.city}` : ''}
+${snowDayPrediction.locationContext.county ? `- County: ${snowDayPrediction.locationContext.county}` : ''}
+${snowDayPrediction.locationContext.latitude !== undefined && snowDayPrediction.locationContext.longitude !== undefined ? `- Coordinates: ${snowDayPrediction.locationContext.latitude.toFixed(4)}, ${snowDayPrediction.locationContext.longitude.toFixed(4)}` : ''}
+- Forecast point used: ${snowDayPrediction.locationContext.weatherQuery}
+` : ''}
+${snowDayPrediction.localSensorBriefing ? `\n${snowDayPrediction.localSensorBriefing}\n` : ''}
 PROBABILITIES:
 - Full School Closing: ${snowDayPrediction.full_closing_probability}%
 - Delay (late start): ${snowDayPrediction.delay_probability}%
 - Early Dismissal: ${snowDayPrediction.early_dismissal_probability}%
 
-WEATHER FORECAST:
+WEATHER FORECAST (for this ZIP/district point):
 - Temperature: ${Math.round((snowDayPrediction.forecast.temperature * 9/5) + 32)}°F
 - Snowfall: ${snowDayPrediction.forecast.snowfall?.toFixed(1) || '0'} inches
 - Precipitation: ${snowDayPrediction.forecast.precipitation.toFixed(1)} mm
@@ -449,22 +475,15 @@ CRITICAL: Use this conversation history to UNDERSTAND THE CONNECTION between mes
     ? `IMPORTANT: Use ONLY the data provided below. Do NOT make up or guess any information.
 ${conversationContext}
 
-DATA PRIORITY ORDER (ALL SOURCES AVAILABLE):
-1. CURRENT WEATHER (LIVE API DATA) - System tries ALL sources (NWS, Weatherbit, Weatherstack, Visual Crossing, Xweather, OpenWeatherMap) and uses the best available. Use this data naturally without mentioning sources.
-2. SCHOOL CANCELLATION PREDICTION - If provided, use this data to make clear school cancellation recommendations. This includes probabilities, thresholds, and factors.
-3. ROAD CONDITIONS FROM ALL SOURCES - Aggregated data from ALL sources simultaneously:
-   * NWS - Weather warnings
-   * TomTom Traffic - Real-time incidents with GPS
-   * VTrans RWIS - 40+ sensor stations
-   * VTrans Lane Closures - Construction/maintenance
-   * VTrans Traffic Incidents - Accidents/hazards
-   * Xweather - Road weather forecasts
-   * New England 511 - Traffic/road conditions
-   Reference and cite specific sources when providing road information - you have access to ALL of them.
-4. HISTORICAL DATA - Only use this for trends/patterns, NOT for current conditions
-5. KNOWLEDGE BASE - Additional context information
+DATA PRIORITY ORDER (INTEGRATE BROADLY — APIs ARE FALLBACK WHEN NO VTRANS RWIS):
+1. CURRENT WEATHER (LIVE API DATA) - NWS, Weatherbit, Weatherstack, Visual Crossing, Xweather, OpenWeatherMap. Always weave temperature/conditions/wind from this into road and snow-day answers.
+2. VTrans RWIS (when present) - local pavement sensors for ZIP/route-specific surface truth.
+3. API / OTHER ROAD LAYERS - NWS alerts, TomTom, Xweather road weather, New England 511, VTrans lane closures & incidents. Use these WITH RWIS, and as the main picture when RWIS is missing.
+4. SCHOOL CANCELLATION PREDICTION - probabilities + factors (already ZIP-grounded when a ZIP was given).
+5. HISTORICAL DATA - trends only, not current conditions
+6. KNOWLEDGE BASE - extra context
 
-IMPORTANT: You have access to data from ALL these sources, not just one. Use comprehensive information from multiple sources when relevant.
+IMPORTANT: Never answer from a single silo. If RWIS is missing, APIs are the fallback — use them fully. If RWIS is present, still mention forecast/alerts/traffic when available.
 
 IMPORTANT: All temperatures are in Fahrenheit (°F). Always report temperatures in Fahrenheit.
 
@@ -502,7 +521,7 @@ Respond as Maple - be friendly and conversational. This is NOT a weather questio
 
   try {
     const completion = await openai.chat.completions.create({
-      model: 'gpt-4o', // Government-grade accuracy required - using GPT-4o for highest accuracy
+      model: 'gpt-4o', 
       messages: [
         { role: 'system', content: systemPrompt },
         { role: 'user', content: userPrompt },

@@ -156,9 +156,9 @@ export function convertNewEngland511ToRoadConditions(data: any[]): Array<{
  * Attempt to fetch public data and convert to road conditions
  * 
  * NOTE: Most 511 data is accessed via VTrans services which use the Developer Portal:
- * - VTrans Incidents service uses: https://nec-por.ne-compass.com/DeveloperPortal/Incidents/Vermont
- * - VTrans Lane Closures service uses: https://nec-por.ne-compass.com/DeveloperPortal/LaneClosures/Vermont
- * - VTrans RWIS service uses: https://nec-por.ne-compass.com/DeveloperPortal/EnvironmentSensorData/Vermont
+ * - VTrans Incidents: .../NEC.XmlDataPortal/api/c2c?networks=Vermont&dataTypes=incidentData
+ * - VTrans Lane Closures: .../NEC.XmlDataPortal/api/c2c?networks=Vermont&dataTypes=laneClosureData
+ * - VTrans RWIS (ESS): .../NEC.XmlDataPortal/api/c2c?networks=Vermont&dataTypes=essData
  * 
  * This function attempts to get any additional JSON data if available
  */

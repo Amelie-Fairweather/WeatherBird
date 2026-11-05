@@ -91,21 +91,31 @@ export async function calculateDetailedRoadSafetyScore(
     combinationEffects: { score: 100, weight: 2, description: '' },
   };
 
-  // Convert temperature to Fahrenheit if needed
+  // Prefer pavement temp from VTrans RWIS when present (road surface truth)
   let tempF = weatherContext?.temperature;
-  if (condition.temperature !== undefined) {
-    // Condition temperature is already in Fahrenheit (set in route.ts)
-    // Only convert if it's clearly in Celsius (very cold values < 0 or reasonable Celsius range)
-    if (condition.temperature < -10 || (condition.temperature >= -10 && condition.temperature <= 50 && condition.temperature !== Math.round(condition.temperature))) {
-      // Likely Celsius - convert
-      tempF = Math.round((condition.temperature * 9/5) + 32);
+  const surfaceTemp =
+    condition.pavementTemperature !== undefined
+      ? condition.pavementTemperature
+      : condition.temperature;
+  if (surfaceTemp !== undefined) {
+    // Condition temps from VTrans RWIS are already Fahrenheit
+    if (
+      surfaceTemp < -10 ||
+      (surfaceTemp >= -10 &&
+        surfaceTemp <= 50 &&
+        surfaceTemp !== Math.round(surfaceTemp) &&
+        condition.source !== 'VTrans RWIS')
+    ) {
+      tempF = Math.round(surfaceTemp * (9 / 5) + 32);
     } else {
-      // Already in Fahrenheit
-      tempF = condition.temperature;
+      tempF = surfaceTemp;
     }
   }
-  const windMph = weatherContext?.windSpeed ? weatherContext.windSpeed : undefined;
+  const windMph =
+    weatherContext?.windSpeed ??
+    (condition.windSpeed !== undefined ? condition.windSpeed : undefined);
   const humidity = weatherContext?.humidity;
+  const frictionMu = condition.surfaceFriction;
 
   // FACTOR 1: Base Condition (40% weight) - Most important
   let baseConditionScore = 100;
@@ -143,6 +153,25 @@ export async function calculateDetailedRoadSafetyScore(
       break;
   }
   
+  // VTrans RWIS surface friction (μ 0–1) adjusts the base road score
+  if (frictionMu !== undefined) {
+    if (frictionMu < 0.45) {
+      baseConditionScore = Math.min(baseConditionScore, 15);
+      baseDescription += ` — critical low grip (μ=${frictionMu.toFixed(2)})`;
+    } else if (frictionMu < 0.55) {
+      baseConditionScore = Math.min(baseConditionScore, 30);
+      baseDescription += ` — very slippery (μ=${frictionMu.toFixed(2)})`;
+    } else if (frictionMu < 0.65) {
+      baseConditionScore = Math.min(baseConditionScore, Math.max(35, baseConditionScore - 20));
+      baseDescription += ` — reduced grip (μ=${frictionMu.toFixed(2)})`;
+    } else if (frictionMu >= 0.78 && condition.condition === 'clear') {
+      baseConditionScore = Math.max(baseConditionScore, 95);
+      baseDescription += ` — good grip (μ=${frictionMu.toFixed(2)})`;
+    } else {
+      baseDescription += ` — grip μ=${frictionMu.toFixed(2)}`;
+    }
+  }
+
   factors.baseCondition = { score: baseConditionScore, weight: 40, description: baseDescription };
   totalScore = (totalScore * 0.6) + (baseConditionScore * 0.4);
 
@@ -152,13 +181,13 @@ export async function calculateDetailedRoadSafetyScore(
   
   if (tempF !== undefined) {
     if (tempF <= 20) {
-      // Extremely cold - instant ice formation risk
+ 
       temperatureScore = 15;
       tempDescription = `Extremely cold (${tempF}°F) - severe ice formation risk`;
       
-      // Combination: ice + extreme cold = even more dangerous
+     
       if (condition.condition === 'ice') {
-        temperatureScore = 5; // Ice at extreme cold is catastrophic
+        temperatureScore = 5; 
         tempDescription += ' - ice conditions exacerbated by extreme cold';
       }
     } else if (tempF <= 28) {
@@ -379,6 +408,15 @@ export async function calculateDetailedRoadSafetyScore(
   else if (condition.condition === 'closed' && condition.warning?.toLowerCase().includes('ice')) {
     combinationScore = 5;
     combinationDescription = 'CLOSED + ICE: Road closed due to ice - extreme danger';
+  }
+  // Low RWIS friction + wet/cold pavement
+  else if (
+    frictionMu !== undefined &&
+    frictionMu < 0.6 &&
+    (condition.condition === 'wet' || condition.condition === 'ice')
+  ) {
+    combinationScore = Math.min(combinationScore, frictionMu < 0.5 ? 25 : 45);
+    combinationDescription = `LOW FRICTION (μ=${frictionMu.toFixed(2)}) + ${condition.condition.toUpperCase()}: Vermont RWIS reports poor pavement grip`;
   }
   
   factors.combinationEffects = { score: combinationScore, weight: 2, description: combinationDescription };

@@ -4,7 +4,6 @@ import Link from "next/link";
 import { useState } from "react";
 import dynamic from "next/dynamic";
 
-// Dynamically import the map component (requires client-side rendering)
 const VermontRoadSafetyMap = dynamic(() => import("@/components/VermontRoadSafetyMap"), {
   ssr: false,
   loading: () => (

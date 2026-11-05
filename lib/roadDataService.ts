@@ -14,7 +14,10 @@
 import { fetchXweatherRoadWeather, XweatherRoadCondition } from './xweatherService';
 import { fetchTomTomTrafficIncidents, convertTomTomIncidentsToRoadConditions } from './tomtomService';
 import { fetchNewEngland511PublicRoadConditions } from './newEngland511PublicService';
-import { fetchVTransRWISRoadConditions } from './vtransRWISService';
+import {
+  fetchVTransRWISRoadConditions,
+  formatVermontRWISSummaryForAI,
+} from './vtransRWISService';
 import { fetchVTransLaneClosureRoadConditions } from './vtransLaneClosureService';
 import { fetchVTransIncidentRoadConditions } from './vtransIncidentsService';
 
@@ -22,6 +25,11 @@ export interface RoadCondition {
   route: string;
   condition: 'clear' | 'wet' | 'snow-covered' | 'ice' | 'closed' | 'unknown';
   temperature?: number;
+  pavementTemperature?: number;
+  surfaceFriction?: number; // 0–1 (VTrans RWIS μ)
+  windSpeed?: number; // mph
+  locationDescription?: string;
+  stationName?: string;
   warning?: string;
   source: string;
   timestamp: string;
@@ -129,8 +137,40 @@ export function formatRoadConditionsForAI(conditions: RoadCondition[]): string {
     bySource.get(source)!.push(condition);
   });
 
-  let summary = 'ACTIVE ROAD CONDITIONS AND WARNINGS (Validated and Fact-Checked):\n';
+  let summary = 'ACTIVE VERMONT ROAD CONDITIONS (Validated):\n';
   summary += `Total validated conditions: ${conditions.length} from ${bySource.size} sources\n\n`;
+
+  const rwis = bySource.get('VTrans RWIS') || [];
+  const apiSourcesPresent = [
+    'NWS',
+    'TomTom',
+    'Xweather',
+    'New England 511',
+  ].filter((s) => (bySource.get(s)?.length || 0) > 0);
+  const otherVTrans =
+    (bySource.get('VTrans Lane Closures')?.length || 0) +
+    (bySource.get('VTrans Incidents')?.length || 0);
+
+  if (rwis.length > 0) {
+    summary += formatVermontRWISSummaryForAI(rwis) + '\n';
+    summary +=
+      'INTEGRATION RULE: Lead with VTrans RWIS pavement sensors for local roads, AND weave in weather APIs (NWS/Weatherbit/Xweather), TomTom traffic, and VTrans closures/incidents when those sections have data. Do not answer from RWIS alone.\n\n';
+  } else {
+    summary +=
+      'VTrans RWIS STATUS: No live pavement-sensor readings in this payload.\n';
+    summary +=
+      'API FALLBACK MODE: Use NWS alerts, forecast APIs (Weatherbit/Xweather/etc.), TomTom traffic, New England 511, and any VTrans lane closures/incidents below as the primary road/travel picture. Answer with those numbers — do NOT say road data is unavailable if API sections have content.\n';
+    if (apiSourcesPresent.length > 0 || otherVTrans > 0) {
+      summary += `Available non-RWIS layers: ${[
+        ...apiSourcesPresent,
+        otherVTrans > 0 ? 'VTrans closures/incidents' : null,
+      ]
+        .filter(Boolean)
+        .join(', ')}.\n\n`;
+    } else {
+      summary += '\n';
+    }
+  }
   
   // Prioritize official sources first
   const sourcePriority = ['VTrans RWIS', 'VTrans Lane Closures', 'VTrans Incidents', 'NWS', 'TomTom', 'Xweather', 'New England 511'];
@@ -139,25 +179,56 @@ export function formatRoadConditionsForAI(conditions: RoadCondition[]): string {
     const sourceConditions = bySource.get(sourceName);
     if (sourceConditions && sourceConditions.length > 0) {
       summary += `\n[${sourceName} - ${sourceConditions.length} condition(s)]:\n`;
-      sourceConditions.forEach((condition, index) => {
-        summary += `${index + 1}. ${condition.route}: ${condition.condition.toUpperCase()}`;
-        if (condition.latitude && condition.longitude) {
-          summary += ` (Location: ${condition.latitude.toFixed(4)}, ${condition.longitude.toFixed(4)})`;
+      // Cap RWIS detail lines so Maple prompt stays within context, but keep richest stations first
+      const ordered =
+        sourceName === 'VTrans RWIS'
+          ? [...sourceConditions].sort((a, b) => {
+              const sev = { MAJOR: 0, MODERATE: 1, MINOR: 2 } as const;
+              const sa = a.severity ? sev[a.severity] : 3;
+              const sb = b.severity ? sev[b.severity] : 3;
+              if (sa !== sb) return sa - sb;
+              return (a.surfaceFriction ?? 1) - (b.surfaceFriction ?? 1);
+            })
+          : sourceConditions;
+      const limit = sourceName === 'VTrans RWIS' ? 40 : ordered.length;
+      ordered.slice(0, limit).forEach((condition, index) => {
+        const label = condition.stationName
+          ? `${condition.route} (${condition.stationName})`
+          : condition.route;
+        summary += `${index + 1}. ${label}: ${condition.condition.toUpperCase()}`;
+        if (condition.locationDescription) {
+          summary += ` @ ${condition.locationDescription}`;
+        } else if (condition.latitude && condition.longitude) {
+          summary += ` (${condition.latitude.toFixed(4)}, ${condition.longitude.toFixed(4)})`;
         }
         if (condition.temperature !== undefined) {
-          summary += ` | Temperature: ${condition.temperature.toFixed(1)}°F`;
+          summary += ` | air ${condition.temperature.toFixed(0)}°F`;
+        }
+        if (condition.pavementTemperature !== undefined) {
+          summary += ` | pavement ${condition.pavementTemperature.toFixed(0)}°F`;
+        }
+        if (condition.surfaceFriction !== undefined) {
+          summary += ` | μ=${condition.surfaceFriction.toFixed(2)}`;
+        }
+        if (condition.windSpeed !== undefined && condition.windSpeed >= 20) {
+          summary += ` | wind ${condition.windSpeed} mph`;
         }
         if (condition.warning) {
-          const warning = condition.warning.length > 150 
-            ? condition.warning.substring(0, 150) + '...'
-            : condition.warning;
-          summary += ` - ${warning}`;
+          const maxLen = sourceName === 'VTrans RWIS' ? 220 : 150;
+          const warning =
+            condition.warning.length > maxLen
+              ? condition.warning.substring(0, maxLen) + '...'
+              : condition.warning;
+          summary += ` — ${warning}`;
         }
         if (condition.severity) {
-          summary += ` [Severity: ${condition.severity}]`;
+          summary += ` [${condition.severity}]`;
         }
-        summary += ` (Source: ${condition.source}, Updated: ${new Date(condition.timestamp).toLocaleTimeString()})\n`;
+        summary += ` (Updated ${new Date(condition.timestamp).toLocaleTimeString('en-US', { timeZone: 'America/New_York' })} ET)\n`;
       });
+      if (ordered.length > limit) {
+        summary += `... plus ${ordered.length - limit} more VTrans RWIS stations (see statewide mix above).\n`;
+      }
     }
   });
 
@@ -175,7 +246,13 @@ export function formatRoadConditionsForAI(conditions: RoadCondition[]): string {
     }
   });
 
-  summary += '\nNote: All conditions have been validated for accuracy and cross-referenced across multiple sources.';
+  if (rwis.length > 0) {
+    summary +=
+      '\nNote: VTrans RWIS = pavement ground truth; weather/traffic APIs = forecast, alerts, and incidents. Use both.';
+  } else {
+    summary +=
+      '\nNote: No VTrans RWIS here — weather and traffic APIs are the authoritative fallback for this answer.';
+  }
 
   return summary;
 }

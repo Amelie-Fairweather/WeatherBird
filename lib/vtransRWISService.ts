@@ -1,10 +1,13 @@
 /**
  * VTrans RWIS (Road Weather Information System) Service
- * Fetches real-time road condition data from Vermont's public RWIS XML feed
- * 
- * Data Source: VTrans Environmental Sensor Stations (ESS)
- * Format: XML with microdegree coordinates
+ * Live feed: New England Compass C2C ESS XML (public, no API key)
+ * https://nec-por.ne-compass.com/NEC.XmlDataPortal/api/c2c?networks=Vermont&dataTypes=essData
+ *
+ * Coordinates are microdegrees. Temps are tenths of °C. surfaceFriction is 0–1 (μ).
  */
+
+export const VTRANS_ESS_FEED_URL =
+  'https://nec-por.ne-compass.com/NEC.XmlDataPortal/api/c2c?networks=Vermont&dataTypes=essData';
 
 export interface VTransRWISStation {
   id: string;
@@ -13,122 +16,155 @@ export interface VTransRWISStation {
   longitude: number;
   status: string;
   type: string;
-  roadSurfaceCond?: 'Dry' | 'Wet' | 'Unknown';
+  roadSurfaceCond?: 'Dry' | 'Wet' | 'Ice' | 'Snow' | 'Frost' | 'Unknown';
   precipType?: string;
   precipRate?: number;
-  airTemp?: number; // Celsius (need to convert to Fahrenheit)
-  pavementTemp?: number; // Celsius (need to convert to Fahrenheit)
-  dewPoint?: number; // Celsius
+  airTemp?: number; // Fahrenheit
+  pavementTemp?: number; // Fahrenheit
+  dewPoint?: number; // Fahrenheit
   windSpeed?: number; // mph
   windDir?: string;
   visibility?: number; // meters
-  waterDepth?: number; // mm
-  surfaceFriction?: number; // 0-100 scale
+  waterDepth?: number; // mm (sensor units as reported)
+  surfaceFriction?: number; // 0–1 coefficient of friction
+  barometricPressure?: number;
   roadway?: string;
   direction?: string;
+  locationDescription?: string;
   timestamp: string;
 }
 
-/**
- * Convert microdegree coordinates to decimal degrees
- * Example: 44975151 -> 44.975151
- */
+export interface VTransRWISRoadCondition {
+  route: string;
+  condition: 'clear' | 'wet' | 'snow-covered' | 'ice' | 'closed' | 'unknown';
+  temperature?: number;
+  pavementTemperature?: number;
+  surfaceFriction?: number;
+  windSpeed?: number;
+  locationDescription?: string;
+  stationName?: string;
+  warning?: string;
+  source: string;
+  timestamp: string;
+  latitude?: number;
+  longitude?: number;
+  severity?: 'MINOR' | 'MODERATE' | 'MAJOR';
+}
+
 function microdegreesToDecimal(microdeg: number): number {
   return microdeg / 1000000;
 }
 
-/**
- * Convert Celsius to Fahrenheit
- * Note: VTrans values appear to be in tenths of Celsius
- */
-function celsiusToFahrenheit(tenthsOfCelsius: number): number {
-  const celsius = tenthsOfCelsius / 10;
-  return celsius * 9/5 + 32;
+/** VTrans ESS temps are tenths of Celsius → Fahrenheit */
+function tenthsCToF(tenthsOfCelsius: number): number {
+  return (tenthsOfCelsius / 10) * (9 / 5) + 32;
 }
 
 /**
- * Parse VTrans RWIS XML data
+ * Normalize friction to 0–1. Feed reports values like 0.58–0.82.
+ * If a legacy 0–100 value appears, scale it down.
+ */
+function normalizeFriction(raw: number | undefined): number | undefined {
+  if (raw === undefined || Number.isNaN(raw)) return undefined;
+  if (raw > 1.5) return Math.min(1, raw / 100);
+  return Math.max(0, Math.min(1, raw));
+}
+
+function frictionLabel(mu: number): string {
+  if (mu < 0.4) return 'extremely slippery';
+  if (mu < 0.55) return 'very slippery';
+  if (mu < 0.65) return 'slippery';
+  if (mu < 0.75) return 'reduced grip';
+  return 'good grip';
+}
+
+/**
+ * Parse VTrans RWIS / ESS XML (C2C ICD)
  */
 export function parseVTransRWISXML(xmlText: string): VTransRWISStation[] {
   const stations: VTransRWISStation[] = [];
-  
+
   try {
-    // Parse XML - extract ess elements
-    const essMatches = xmlText.matchAll(/<ess[^>]*>([\s\S]*?)<\/ess>/g);
-    
+    const essMatches = xmlText.matchAll(/<ess\b[^>]*>([\s\S]*?)<\/ess>/gi);
+
     for (const match of essMatches) {
       const essContent = match[0];
-      
-      // Extract fields using regex (simple XML parsing)
-      const getId = (tag: string): string | undefined => {
-        const regex = new RegExp(`<${tag}[^>]*>([^<]*)</${tag}>`, 'i');
+
+      const getTag = (tag: string): string | undefined => {
+        const regex = new RegExp(`<${tag}(?:\\s[^>]*)?>([^<]*)</${tag}>`, 'i');
         const result = essContent.match(regex);
         return result ? result[1].trim() : undefined;
       };
-      
+
       const getNumeric = (tag: string): number | undefined => {
-        const value = getId(tag);
-        return value && !isNaN(Number(value)) ? Number(value) : undefined;
+        const value = getTag(tag);
+        return value !== undefined && value !== '' && !isNaN(Number(value))
+          ? Number(value)
+          : undefined;
       };
-      
-      const id = getId('id') || getId('id') || 'unknown';
-      const name = getId('name') || 'Unknown Station';
-      
-      // Parse coordinates (microdegrees)
+
+      const attrId = essContent.match(/<ess\b[^>]*\bid="([^"]+)"/i)?.[1];
+      const id = attrId || getTag('id') || 'unknown';
+      const name = getTag('name') || 'Unknown Station';
+      const type = getTag('type') || 'Unknown';
+      const status = getTag('status') || 'Unknown';
+
+      // Skip county polygons / virtual aggregates — not physical sensors
+      if (type === 'VirtualRwis') continue;
+
       const latMicro = getNumeric('lat');
       const lonMicro = getNumeric('lon');
-      
-      if (!latMicro || !lonMicro) continue;
-      
-      const latitude = microdegreesToDecimal(latMicro);
-      const longitude = microdegreesToDecimal(lonMicro);
-      
-      // Parse road condition
-      const roadSurfaceCond = getId('roadSurfaceCond') as 'Dry' | 'Wet' | 'Unknown' | undefined;
-      
-      // Parse temperatures (in tenths of Celsius, need to convert)
+      if (latMicro === undefined || lonMicro === undefined) continue;
+
+      const roadway = getTag('roadway');
+      if (!roadway || roadway === 'nowhere') continue;
+
       const airTempC = getNumeric('airTemp');
       const pavementTempC = getNumeric('pavementTemp');
       const dewPointC = getNumeric('dewPoint');
-      
-      // Convert to Fahrenheit (values appear to be in tenths of Celsius)
-      // Example: -240 = -24.0°C = -11.2°F
-      const airTemp = airTempC !== undefined ? celsiusToFahrenheit(airTempC) : undefined;
-      const pavementTemp = pavementTempC !== undefined ? celsiusToFahrenheit(pavementTempC) : undefined;
-      const dewPoint = dewPointC !== undefined ? celsiusToFahrenheit(dewPointC) : undefined;
-      
-      // Parse other fields
-      const roadway = getId('roadway');
-      
+
+      const surfaceRaw = getTag('roadSurfaceCond');
+      const roadSurfaceCond = surfaceRaw as VTransRWISStation['roadSurfaceCond'] | undefined;
+
       const station: VTransRWISStation = {
-        id: id,
+        id,
         name: name.trim(),
-        latitude,
-        longitude,
-        status: getId('status') || 'Unknown',
-        type: getId('type') || 'Unknown',
+        latitude: microdegreesToDecimal(latMicro),
+        longitude: microdegreesToDecimal(lonMicro),
+        status,
+        type,
         roadSurfaceCond,
-        precipType: getId('precipType'),
+        precipType: getTag('precipType'),
         precipRate: getNumeric('precipRate'),
-        airTemp,
-        pavementTemp,
-        dewPoint,
-        windSpeed: getNumeric('windSpeed'), // Already in mph based on data
-        windDir: getId('windDir'),
+        airTemp: airTempC !== undefined ? tenthsCToF(airTempC) : undefined,
+        pavementTemp: pavementTempC !== undefined ? tenthsCToF(pavementTempC) : undefined,
+        dewPoint: dewPointC !== undefined ? tenthsCToF(dewPointC) : undefined,
+        windSpeed: getNumeric('windSpeed'),
+        windDir: getTag('windDir'),
         visibility: getNumeric('visibility'),
         waterDepth: getNumeric('waterDepth'),
-        surfaceFriction: getNumeric('surfaceFriction'),
-        roadway: roadway && roadway !== 'nowhere' ? roadway : undefined,
-        direction: getId('direction'),
-        timestamp: getId('timestamp') || new Date().toISOString(),
+        surfaceFriction: normalizeFriction(getNumeric('surfaceFriction')),
+        barometricPressure: getNumeric('barometricPressure'),
+        roadway,
+        direction: getTag('direction'),
+        locationDescription: getTag('locationDescription'),
+        timestamp: getTag('timestamp') || new Date().toISOString(),
       };
-      
-      // Only include stations with actual road condition data
-      if (station.roadSurfaceCond || station.surfaceFriction !== undefined) {
-        stations.push(station);
-      }
+
+      const isOnline = /online/i.test(status);
+      const hasSurfaceSignal =
+        !!station.roadSurfaceCond ||
+        station.surfaceFriction !== undefined ||
+        station.pavementTemp !== undefined ||
+        (station.precipType && station.precipType !== 'N/A');
+
+      // Keep online stations with sensor signal; drop stale offline with no useful surface data
+      if (!isOnline && !hasSurfaceSignal) continue;
+      if (!isOnline) continue;
+
+      stations.push(station);
     }
-    
+
     return stations;
   } catch (error) {
     console.error('Error parsing VTrans RWIS XML:', error);
@@ -137,23 +173,52 @@ export function parseVTransRWISXML(xmlText: string): VTransRWISStation[] {
 }
 
 /**
- * Fetch VTrans RWIS data from New England Compass Developer Portal
- * Source: https://nec-por.ne-compass.com/DeveloperPortal/
- * Data Set: Environment Sensor Data (RWIS)
+ * Fetch live Vermont ESS / RWIS from New England Compass XmlDataPortal
  */
 export async function fetchVTransRWISData(xmlData?: string): Promise<VTransRWISStation[]> {
   try {
-    // If XML data is provided directly, parse it
     if (xmlData) {
       return parseVTransRWISXML(xmlData);
     }
-    
-    // NOTE: All New England Compass Developer Portal endpoints return 404
-    // Verified: https://nec-por.ne-compass.com/DeveloperPortal/EnvironmentSensorData/Vermont.xml (404)
-    // Verified: https://nec-por.ne-compass.com/DeveloperPortal/EnvironmentSensorData/Vermont (404)
-    // These endpoints do not exist - portal structure may have changed or requires authentication
-    // VTrans RWIS data is not accessible via public API endpoints
-    // To use RWIS data, provide XML data directly: parseVTransRWISXML(xmlText)
+
+    const endpoints = [
+      VTRANS_ESS_FEED_URL,
+      'https://nec-por.ne-compass.com/NEC.XmlDataPortal/api/c2c?networks=Vermont&dataTypes=essData',
+    ];
+
+    for (const endpoint of endpoints) {
+      try {
+        const response = await fetch(endpoint, {
+          headers: {
+            Accept: 'application/xml, text/xml, */*',
+            'User-Agent': 'WEATHERbird/1.0 (Vermont road weather; weatherbirdvt.com)',
+          },
+          signal: AbortSignal.timeout(15000),
+          cache: 'no-store',
+        });
+
+        if (!response.ok) {
+          console.warn(`[VTrans RWIS] ${endpoint} → HTTP ${response.status}`);
+          continue;
+        }
+
+        const xmlText = await response.text();
+        if (!xmlText.includes('<ess')) continue;
+
+        const stations = parseVTransRWISXML(xmlText);
+        if (stations.length > 0) {
+          console.log(`[VTrans RWIS] ${stations.length} online stations from ${endpoint}`);
+          return stations;
+        }
+      } catch (e) {
+        console.warn(
+          `[VTrans RWIS] Failed ${endpoint}:`,
+          e instanceof Error ? e.message : 'Unknown error'
+        );
+      }
+    }
+
+    console.warn('[VTrans RWIS] No live ESS data returned');
     return [];
   } catch (error) {
     console.error('Error fetching VTrans RWIS data:', error);
@@ -162,114 +227,150 @@ export async function fetchVTransRWISData(xmlData?: string): Promise<VTransRWISS
 }
 
 /**
- * Convert VTrans RWIS station to RoadCondition format
+ * Convert VTrans RWIS stations to road-condition records for scoring / Maple
  */
 export function convertVTransRWISToRoadConditions(
   stations: VTransRWISStation[]
-): Array<{
-  route: string;
-  condition: 'clear' | 'wet' | 'snow-covered' | 'ice' | 'closed' | 'unknown';
-  temperature?: number;
-  warning?: string;
-  source: string;
-  timestamp: string;
-  latitude?: number;
-  longitude?: number;
-  severity?: 'MINOR' | 'MODERATE' | 'MAJOR';
-}> {
+): VTransRWISRoadCondition[] {
   return stations
-    .filter(station => station.roadway && station.roadway !== 'nowhere')
-    .map(station => {
-      let condition: 'clear' | 'wet' | 'snow-covered' | 'ice' | 'closed' | 'unknown' = 'unknown';
-      let warning = '';
-      
-      // Map road surface condition (ACCURATE MAPPING)
+    .filter((station) => station.roadway && station.roadway !== 'nowhere')
+    .map((station) => {
+      let condition: VTransRWISRoadCondition['condition'] = 'unknown';
+      const parts: string[] = [];
+      const mu = station.surfaceFriction;
+      const air = station.airTemp;
+      const pavement = station.pavementTemp;
+      const loc =
+        station.locationDescription ||
+        [station.roadway, station.direction, station.name].filter(Boolean).join(' ');
+
+      parts.push(`${station.name}`);
+      if (station.locationDescription) {
+        parts.push(`@ ${station.locationDescription}`);
+      }
+
+      const nearFreezing =
+        (air !== undefined && air <= 35) || (pavement !== undefined && pavement <= 35);
+      const freezing =
+        (air !== undefined && air <= 32) || (pavement !== undefined && pavement <= 32);
+
       switch (station.roadSurfaceCond) {
         case 'Dry':
-          // Check for ice risk based on temperature and surface friction
-          if (station.airTemp !== undefined && station.airTemp <= 32 && station.surfaceFriction !== undefined) {
-            if (station.surfaceFriction < 50) {
-              condition = 'ice';
-              warning = `Dry road but low friction (${station.surfaceFriction}) - possible black ice at ${station.airTemp.toFixed(1)}°F`;
-            } else if (station.airTemp <= 35) {
-              condition = 'wet'; // Near freezing - treat as wet (caution level)
-              warning = `Dry road but near freezing (${station.airTemp.toFixed(1)}°F) - watch for ice formation`;
-            } else {
-              condition = 'clear';
-            }
-          } else if (station.surfaceFriction !== undefined && station.surfaceFriction < 60) {
-            // Low friction even on "dry" roads indicates hidden ice or other issues
-            condition = station.surfaceFriction < 40 ? 'ice' : 'wet';
-            warning = `Dry reported but friction ${station.surfaceFriction} suggests slippery conditions`;
+          if (mu !== undefined && mu < 0.5 && freezing) {
+            condition = 'ice';
+            parts.push(
+              `Dry report but friction ${mu.toFixed(2)} (${frictionLabel(mu)}) near freezing — possible black ice`
+            );
+          } else if (nearFreezing && mu !== undefined && mu < 0.7) {
+            condition = 'wet';
+            parts.push(
+              `Dry surface near freezing (${air?.toFixed(0) ?? '?'}°F air / ${pavement?.toFixed(0) ?? '?'}°F pavement) — watch for ice`
+            );
           } else {
             condition = 'clear';
+            parts.push('Dry pavement');
           }
           break;
         case 'Wet':
-          // Check if it could freeze
-          if (station.airTemp !== undefined && station.airTemp <= 35) {
+          if (freezing || (nearFreezing && mu !== undefined && mu < 0.6)) {
             condition = 'ice';
-            warning = `Wet road at ${station.airTemp.toFixed(1)}°F - high ice risk (freezing likely)`;
+            parts.push(
+              `Wet at ${air?.toFixed(0) ?? '?'}°F air / ${pavement?.toFixed(0) ?? '?'}°F pavement — freeze risk`
+            );
           } else {
             condition = 'wet';
-            warning = `Wet road conditions at ${station.airTemp?.toFixed(1) || 'unknown'}°F`;
+            parts.push('Wet pavement');
           }
           break;
+        case 'Ice':
+        case 'Frost':
+          condition = 'ice';
+          parts.push(`${station.roadSurfaceCond} on pavement`);
+          break;
+        case 'Snow':
+          condition = 'snow-covered';
+          parts.push('Snow on pavement');
+          break;
         case 'Unknown':
-          // Use surface friction and temperature to infer
-          if (station.surfaceFriction !== undefined) {
-            if (station.surfaceFriction < 40) {
+        default:
+          if (mu !== undefined) {
+            if (mu < 0.45) {
               condition = 'ice';
-              warning = `Very low friction (${station.surfaceFriction}) - likely ice or snow`;
-            } else if (station.surfaceFriction < 60) {
+              parts.push(`Unknown surface — friction ${mu.toFixed(2)} (${frictionLabel(mu)})`);
+            } else if (mu < 0.6) {
               condition = 'snow-covered';
-              warning = `Low friction (${station.surfaceFriction}) - snow-covered or slushy`;
+              parts.push(`Unknown surface — friction ${mu.toFixed(2)} suggests snow/slush`);
             } else {
               condition = 'unknown';
-              warning = `Unknown condition - friction: ${station.surfaceFriction}`;
+              parts.push(`Unknown surface — friction ${mu.toFixed(2)}`);
             }
           } else {
             condition = 'unknown';
+            parts.push('Surface condition unknown');
           }
           break;
       }
-      
-      // Check precipitation type
-      if (station.precipType) {
-        const precip = station.precipType.toLowerCase();
-        if (precip.includes('snow')) {
-          condition = 'snow-covered';
-          warning = `Snow reported - ${station.roadSurfaceCond || 'unknown'} surface`;
-        } else if (precip.includes('rain') && station.airTemp !== undefined && station.airTemp <= 32) {
+
+      const precip = (station.precipType || '').toLowerCase();
+      if (precip.includes('snow') || precip.includes('sleet')) {
+        condition = 'snow-covered';
+        parts.push(`Precip: ${station.precipType}`);
+      } else if (precip.includes('freezing')) {
+        condition = 'ice';
+        parts.push(`Precip: ${station.precipType} — EXTREMELY DANGEROUS`);
+      } else if (precip.includes('rain')) {
+        if (freezing) {
           condition = 'ice';
-          warning = `Freezing rain at ${station.airTemp.toFixed(1)}°F - EXTREMELY DANGEROUS`;
+          parts.push(`Rain at freezing temps — icing risk`);
+        } else if (condition === 'clear' || condition === 'unknown') {
+          condition = 'wet';
+        }
+        if (station.precipRate !== undefined && station.precipRate > 0) {
+          parts.push(`Rain rate ${station.precipRate}`);
+        } else {
+          parts.push(`Precip: ${station.precipType}`);
         }
       }
-      
-      // Surface friction warnings
-      if (station.surfaceFriction !== undefined) {
-        if (station.surfaceFriction < 40) {
-          warning += ` | CRITICAL: Surface friction ${station.surfaceFriction} (extremely slippery)`;
-        } else if (station.surfaceFriction < 60) {
-          warning += ` | CAUTION: Surface friction ${station.surfaceFriction} (slippery)`;
-        }
+
+      if (mu !== undefined) {
+        parts.push(`friction ${mu.toFixed(2)} (${frictionLabel(mu)})`);
       }
-      
-      // Determine severity based on condition and friction
-      let severity: 'MINOR' | 'MODERATE' | 'MAJOR' | undefined = undefined;
-      if (condition === 'ice' || (station.surfaceFriction !== undefined && station.surfaceFriction < 40)) {
+      if (air !== undefined) parts.push(`air ${air.toFixed(0)}°F`);
+      if (pavement !== undefined) parts.push(`pavement ${pavement.toFixed(0)}°F`);
+      if (station.waterDepth !== undefined && station.waterDepth > 0) {
+        parts.push(`water depth ${station.waterDepth}`);
+      }
+      if (station.windSpeed !== undefined && station.windSpeed >= 25) {
+        parts.push(`wind ${station.windSpeed} mph ${station.windDir || ''}`.trim());
+      }
+      if (station.visibility !== undefined && station.visibility < 1609) {
+        // < 1 mile in meters
+        parts.push(`visibility ${(station.visibility / 1609).toFixed(1)} mi`);
+      }
+
+      let severity: VTransRWISRoadCondition['severity'];
+      if (condition === 'ice' || (mu !== undefined && mu < 0.45)) {
         severity = 'MAJOR';
-      } else if (condition === 'snow-covered' || (station.surfaceFriction !== undefined && station.surfaceFriction < 60)) {
+      } else if (
+        condition === 'snow-covered' ||
+        (mu !== undefined && mu < 0.6) ||
+        (condition === 'wet' && nearFreezing)
+      ) {
         severity = 'MODERATE';
       } else if (condition === 'wet' || condition === 'unknown') {
         severity = 'MINOR';
       }
-      
+
       return {
         route: station.roadway || station.name,
         condition,
-        temperature: station.airTemp,
-        warning: warning || `${station.name}: ${station.roadSurfaceCond || 'unknown'} conditions`,
+        temperature: air,
+        pavementTemperature: pavement,
+        surfaceFriction: mu,
+        windSpeed: station.windSpeed,
+        locationDescription: loc,
+        stationName: station.name,
+        warning: parts.join(' | '),
         source: 'VTrans RWIS',
         timestamp: station.timestamp,
         latitude: station.latitude,
@@ -280,19 +381,72 @@ export function convertVTransRWISToRoadConditions(
 }
 
 /**
+ * Statewide narrative for Maple / AI context from live RWIS stations
+ */
+export function formatVermontRWISSummaryForAI(
+  conditions: VTransRWISRoadCondition[]
+): string {
+  if (conditions.length === 0) {
+    return 'VTrans RWIS: no online Vermont sensor stations available right now.';
+  }
+
+  const counts = {
+    clear: 0,
+    wet: 0,
+    ice: 0,
+    snow: 0,
+    unknown: 0,
+  };
+  for (const c of conditions) {
+    if (c.condition === 'clear') counts.clear++;
+    else if (c.condition === 'wet') counts.wet++;
+    else if (c.condition === 'ice') counts.ice++;
+    else if (c.condition === 'snow-covered') counts.snow++;
+    else counts.unknown++;
+  }
+
+  const withFriction = conditions
+    .filter((c) => c.surfaceFriction !== undefined)
+    .sort((a, b) => (a.surfaceFriction ?? 1) - (b.surfaceFriction ?? 1));
+
+  const temps = conditions
+    .map((c) => c.temperature)
+    .filter((t): t is number => t !== undefined);
+  const pavements = conditions
+    .map((c) => c.pavementTemperature)
+    .filter((t): t is number => t !== undefined);
+
+  const avg = (arr: number[]) =>
+    arr.length ? arr.reduce((s, n) => s + n, 0) / arr.length : undefined;
+
+  const avgAir = avg(temps);
+  const avgPavement = avg(pavements);
+  const lowestFriction = withFriction.slice(0, 5);
+
+  let out = `VERMONT VTrans RWIS LIVE NETWORK (${conditions.length} online stations):\n`;
+  out += `Statewide mix: ${counts.wet} wet, ${counts.clear} dry/clear, ${counts.ice} ice-risk, ${counts.snow} snow-covered, ${counts.unknown} unknown.\n`;
+  if (avgAir !== undefined) {
+    out += `Avg air ${avgAir.toFixed(0)}°F`;
+    if (avgPavement !== undefined) out += `, avg pavement ${avgPavement.toFixed(0)}°F`;
+    out += '.\n';
+  }
+  if (lowestFriction.length) {
+    out += 'Lowest grip stations (prioritize in travel advice):\n';
+    lowestFriction.forEach((c, i) => {
+      out += `  ${i + 1}. ${c.stationName || c.route} (${c.route}): μ=${c.surfaceFriction!.toFixed(2)} — ${c.condition}`;
+      if (c.locationDescription) out += ` @ ${c.locationDescription}`;
+      out += '\n';
+    });
+  }
+  out +=
+    'Use these Vermont sensor readings as ground truth for local roads when answering drivers.\n';
+  return out;
+}
+
+/**
  * Fetch and convert VTrans RWIS data to road conditions
  */
-export async function fetchVTransRWISRoadConditions(): Promise<Array<{
-  route: string;
-  condition: 'clear' | 'wet' | 'snow-covered' | 'ice' | 'closed' | 'unknown';
-  temperature?: number;
-  warning?: string;
-  source: string;
-  timestamp: string;
-  latitude?: number;
-  longitude?: number;
-  severity?: 'MINOR' | 'MODERATE' | 'MAJOR';
-}>> {
+export async function fetchVTransRWISRoadConditions(): Promise<VTransRWISRoadCondition[]> {
   try {
     const stations = await fetchVTransRWISData();
     return convertVTransRWISToRoadConditions(stations);
@@ -301,12 +455,3 @@ export async function fetchVTransRWISRoadConditions(): Promise<Array<{
     return [];
   }
 }
-
-
-
-
-
-
-
-
-

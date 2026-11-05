@@ -7,6 +7,14 @@ import { calculateDistrictRoadSafety, formatRoadSafetyRatingForAI } from '@/lib/
 import { predictSnowDay, predictSnowDaysForWeek, SnowDayPrediction, MultiDaySnowDayPredictions } from '@/lib/snowDayPredictionService';
 import { searchSimilar } from '@/lib/vectorStore';
 import { calculateRouteSafety, RouteSafetyAssessment } from '@/lib/routeSafetyService';
+import {
+  extractZipCode,
+  resolveVermontZip,
+  filterConditionsNearLocation,
+  scopeConditionsForLocation,
+  formatLocalRWISBriefing,
+  hasVTransRWIS,
+} from '@/lib/vermontLocationService';
 import { NextResponse } from 'next/server';
 
 // Fetch weather alerts for the location
@@ -191,6 +199,21 @@ export async function POST(request: Request) {
     
     // Check if question is about a specific district or location
     const districtIdentifier = await extractDistrictFromQuestion(question);
+
+    // ZIP in question or client location → precise lat/lon for weather + nearby RWIS
+    const zipFromQuestion =
+      extractZipCode(question) ||
+      (districtIdentifier && /^\d{5}$/.test(districtIdentifier) ? districtIdentifier : null) ||
+      extractZipCode(location || '') ||
+      null;
+    const resolvedZip = zipFromQuestion ? await resolveVermontZip(zipFromQuestion) : null;
+    const weatherLocation =
+      resolvedZip?.weatherQuery ||
+      location ||
+      districtIdentifier ||
+      'Vermont';
+    const weatherLocationLabel =
+      resolvedZip?.displayName || location || districtIdentifier || 'Vermont';
     
     // If route safety question but no origin provided, prepare to ask
     const needsOrigin: boolean = isRouteQuestion && !!destination && !origin;
@@ -204,7 +227,7 @@ export async function POST(request: Request) {
         const weatherSources = ['nws', 'weatherbit', 'weatherstack', 'visualcrossing', 'openweathermap', 'xweather'] as const;
         const weatherPromises = weatherSources.map(async (source) => {
           try {
-            const data = await fetchWeatherFromProvider(location || 'Vermont', source);
+            const data = await fetchWeatherFromProvider(weatherLocation, source);
             return { source, data, success: true };
           } catch (error) {
             return { source, error: error instanceof Error ? error.message : 'Unknown error', success: false };
@@ -219,7 +242,7 @@ export async function POST(request: Request) {
         }
         
         // Use the primary source (first successful, prioritized by reliability)
-        const primaryWeather = await fetchWeatherFromProvider(location || 'Vermont', 'auto');
+        const primaryWeather = await fetchWeatherFromProvider(weatherLocation, 'auto');
         
         // Additional validation check (double-check data quality)
         if (!primaryWeather || !primaryWeather.temperature || !primaryWeather.timestamp) {
@@ -238,7 +261,7 @@ export async function POST(request: Request) {
         const sourceCount = successfulSources.length;
         
         currentWeather = {
-          location: primaryWeather.location,
+          location: weatherLocationLabel || primaryWeather.location,
           temperature: primaryWeather.temperature,
           humidity: primaryWeather.humidity,
           pressure: primaryWeather.pressure,
@@ -368,16 +391,42 @@ export async function POST(request: Request) {
         }
       }
       
-      // Also fetch location-specific road conditions if a location is mentioned
-      if (districtIdentifier && includeWeatherData) {
+      // ZIP-scope nearby sensors, but keep weather/traffic API rows as fallback/integration layer
+      if ((districtIdentifier || resolvedZip) && includeWeatherData) {
         try {
-          // Get road conditions specifically for this location
-          const locationConditions = await fetchAllRoadConditions(districtIdentifier);
-          if (locationConditions.length > 0) {
-            const locationConditionsText = formatRoadConditionsForAI(locationConditions);
-            // Add location-specific conditions to the context
-            combinedRoadConditionsText = `LOCATION-SPECIFIC ROAD CONDITIONS FOR ${districtIdentifier.toUpperCase()}:\n${locationConditionsText}\n\n` + combinedRoadConditionsText;
-            console.log(`[Maple] Location-specific road conditions for ${districtIdentifier}: ${locationConditions.length} conditions`);
+          const locationConditions = await fetchAllRoadConditions(weatherLocation);
+          let scoped = locationConditions;
+          let briefing = '';
+          if (resolvedZip) {
+            const nearby = filterConditionsNearLocation(
+              locationConditions,
+              resolvedZip.latitude,
+              resolvedZip.longitude,
+              40
+            );
+            scoped = scopeConditionsForLocation(
+              locationConditions,
+              resolvedZip.latitude,
+              resolvedZip.longitude,
+              40
+            );
+            briefing = formatLocalRWISBriefing(resolvedZip.displayName, nearby);
+            if (!hasVTransRWIS(scoped)) {
+              briefing +=
+                '\nAPI FALLBACK: No local VTrans RWIS in range — answer from NWS/forecast APIs + TomTom/511 + any VTrans closures below.\n';
+            }
+            console.log(
+              `[Maple] ZIP ${resolvedZip.zip}: ${nearby.length} nearby + API layers → ${scoped.length} total (of ${locationConditions.length})`
+            );
+          }
+          if (scoped.length > 0) {
+            const locationConditionsText = formatRoadConditionsForAI(scoped);
+            combinedRoadConditionsText =
+              `${briefing ? briefing + '\n' : ''}LOCATION-SPECIFIC ROAD CONDITIONS FOR ${weatherLocationLabel.toUpperCase()}:\n${locationConditionsText}\n\n` +
+              combinedRoadConditionsText;
+            console.log(
+              `[Maple] Location-specific road conditions for ${weatherLocationLabel}: ${scoped.length} conditions (RWIS=${hasVTransRWIS(scoped)})`
+            );
           }
         } catch (error) {
           // Silently continue - general road conditions will be used
@@ -388,10 +437,11 @@ export async function POST(request: Request) {
       // Check if question is about school closings/cancellations
       const isSchoolClosingQuestion = /school.*(clos|cancel|delay|dismissal)|(clos|cancel|delay|dismissal).*school|snow.*day|should.*close|next.*week|following.*week|this.*week|upcoming.*week/i.test(question);
       
-      if ((districtIdentifier || isSchoolClosingQuestion) && includeWeatherData) {
+      if ((districtIdentifier || zipFromQuestion || isSchoolClosingQuestion) && includeWeatherData) {
         try {
-          // Try to get multi-day predictions (tomorrow + next week) for the mentioned district
-          const predictionTarget = districtIdentifier || location || 'Vermont';
+          // Prefer ZIP so forecast + RWIS are grounded to that point
+          const predictionTarget =
+            zipFromQuestion || districtIdentifier || location || 'Vermont';
           
           console.log(`[Maple] Generating multi-day snow day predictions for: ${predictionTarget} (school question: ${isSchoolClosingQuestion})`);
           

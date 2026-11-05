@@ -15,6 +15,17 @@ import {
 import { fetchWeatherFromProvider } from './unifiedWeatherService';
 import { getTomorrowSnowfallForecast, fetchWeatherbitForecast } from './weatherbitService';
 import { fetchAllRoadConditions } from './roadDataService'; // Includes Xweather road conditions
+import {
+  extractZipCode,
+  resolveVermontZip,
+  resolveWeatherLocation,
+  filterConditionsNearLocation,
+  scopeConditionsForLocation,
+  formatLocalRWISBriefing,
+  hasVTransRWIS,
+  type NearbyRoadCondition,
+  type VermontZipLocation,
+} from './vermontLocationService';
 
 export interface WeatherForecast {
   temperature: number; // Celsius
@@ -52,6 +63,20 @@ export interface SnowDayPrediction {
   
   // Thresholds used
   thresholds: DistrictThresholds | null;
+
+  /** ZIP / coordinate grounding for data-driven answers */
+  locationContext?: {
+    zip?: string;
+    city?: string;
+    county?: string;
+    latitude?: number;
+    longitude?: number;
+    displayName: string;
+    weatherQuery: string;
+  };
+  /** Closest VTrans RWIS / road sensors to this ZIP or district */
+  nearbySensors?: NearbyRoadCondition[];
+  localSensorBriefing?: string;
 }
 
 export interface MultiDaySnowDayPredictions {
@@ -176,18 +201,39 @@ export async function predictSnowDay(
     }
   }
 
-  // Get location for weather forecast - prefer coordinates for accuracy, then city, then district name
-  // For Xweather, coordinates or specific city names work better than generic "Vermont"
-  let location = 'Vermont'; // Default fallback
-  if (district.latitude && district.longitude) {
-    // Use coordinates for most accurate location-specific data
-    location = `${district.latitude},${district.longitude}`;
-  } else if (district.city) {
-    // Use city name (better than district name for Xweather)
-    location = district.city;
-  } else if (district.district_name) {
-    location = district.district_name;
+  // ZIP → lat/lon → local forecast + nearby RWIS (critical for data-driven answers)
+  const identifierStr = String(districtIdentifier);
+  const zipFromInput =
+    /^\d{5}$/.test(identifierStr)
+      ? identifierStr
+      : extractZipCode(identifierStr) ||
+        (district.zip_codes && district.zip_codes[0]) ||
+        null;
+
+  let resolvedZip: VermontZipLocation | null = null;
+  if (zipFromInput) {
+    resolvedZip = await resolveVermontZip(zipFromInput);
   }
+
+  const resolved = await resolveWeatherLocation({
+    zipCode: zipFromInput,
+    latitude: resolvedZip?.latitude ?? district.latitude,
+    longitude: resolvedZip?.longitude ?? district.longitude,
+    city: resolvedZip?.city ?? district.city,
+    districtName: district.district_name,
+    fallback: 'Vermont',
+  });
+
+  // Weather APIs get precise lat,lon when ZIP resolves; never stay on generic "Vermont" if we have a ZIP
+  const location = resolved.weatherQuery;
+  const locationDisplay = resolved.displayName;
+  const originLat = resolved.latitude;
+  const originLon = resolved.longitude;
+
+  console.log(
+    `[Snow Day] Location resolved for ${district.district_name}: ${locationDisplay} → weather query "${location}"` +
+      (zipFromInput ? ` (ZIP ${zipFromInput})` : '')
+  );
   
   // Determine target date (default: tomorrow if not specified)
   const targetDate = forecastDate ? new Date(forecastDate) : (() => {
@@ -201,7 +247,10 @@ export async function predictSnowDay(
   const targetDateStr = targetDate.toISOString().split('T')[0];
   
   // Declare roadConditions outside try block so it's accessible throughout the function
-  let roadConditions: any[] = [];
+  let roadConditions: NearbyRoadCondition[] = [];
+  let localSensorBriefing = '';
+  let usedApiFallback = false;
+  let allStatewideRoadConditions: Awaited<ReturnType<typeof fetchAllRoadConditions>> = [];
   
   // Fetch forecast for THIS SPECIFIC DATE from multiple sources (NWS, Weatherbit, Xweather)
   // CRITICAL: Each day must get its own forecast, not current weather!
@@ -332,15 +381,70 @@ export async function predictSnowDay(
       }
     }
 
-    // Get road conditions from ALL sources (Xweather, TomTom, NWS, VTrans, etc.) BEFORE ice estimation
-    // This provides real-time road condition data for enhanced prediction accuracy
-    // We need this early for ice detection in the forecast
+    // Get road conditions from ALL sources, then scope to this ZIP/district's lat/lon
     try {
-      roadConditions = await fetchAllRoadConditions(location);
-      console.log(`[Snow Day] Fetched ${roadConditions.length} road conditions from all sources (Xweather, TomTom, NWS, VTrans, etc.) for ${district.district_name}`);
+      allStatewideRoadConditions = await fetchAllRoadConditions(location);
+      if (originLat !== undefined && originLon !== undefined) {
+        const nearby = filterConditionsNearLocation(
+          allStatewideRoadConditions,
+          originLat,
+          originLon,
+          40
+        );
+        // Nearby sensors + API fallback layers (NWS/TomTom/Xweather without coords)
+        const scoped = scopeConditionsForLocation(
+          allStatewideRoadConditions,
+          originLat,
+          originLon,
+          40
+        );
+        const nearbyDist = new Map(
+          nearby.map(
+            (c) =>
+              [
+                `${c.source}|${c.route}|${c.latitude}|${c.longitude}|${c.timestamp}`,
+                c.distanceMiles,
+              ] as const
+          )
+        );
+        roadConditions = scoped.map((c) => {
+          const key = `${c.source}|${c.route}|${c.latitude}|${c.longitude}|${c.timestamp}`;
+          return {
+            ...c,
+            distanceMiles: nearbyDist.get(key) ?? 999,
+          };
+        });
+        localSensorBriefing = formatLocalRWISBriefing(locationDisplay, nearby);
+        if (!hasVTransRWIS(scoped)) {
+          usedApiFallback = true;
+          localSensorBriefing +=
+            '\nAPI FALLBACK MODE for this ZIP: integrate NWS, forecast APIs, TomTom/511, and VTrans closures — no local RWIS.\n';
+        }
+        console.log(
+          `[Snow Day] ${nearby.length} nearby RWIS-range + API layers → ${roadConditions.length}/${allStatewideRoadConditions.length} for ${locationDisplay}`
+        );
+      } else {
+        // No coords — keep full multi-source set (APIs matter as much as geocoded rows)
+        roadConditions = allStatewideRoadConditions.map((c) => ({
+          ...c,
+          distanceMiles: 0,
+        }));
+        localSensorBriefing = formatLocalRWISBriefing(
+          locationDisplay,
+          roadConditions.filter((c) => c.source === 'VTrans RWIS').slice(0, 8)
+        );
+        if (!hasVTransRWIS(roadConditions)) {
+          usedApiFallback = true;
+          localSensorBriefing +=
+            '\nAPI FALLBACK MODE: no VTrans RWIS — use NWS/forecast/traffic APIs.\n';
+        }
+        console.log(
+          `[Snow Day] No ZIP/coords — using ${roadConditions.length} multi-source reports for ${district.district_name}`
+        );
+      }
     } catch (error) {
       console.warn('[Snow Day] Could not fetch road conditions for snow day prediction:', error);
-      roadConditions = []; // Continue with empty array if road conditions fail
+      roadConditions = [];
     }
 
     // Estimate ice accumulation from condition description and road conditions
@@ -389,6 +493,11 @@ export async function predictSnowDay(
 
   // Calculate probabilities using district thresholds
   const factors: string[] = [];
+  if (usedApiFallback) {
+    factors.push(
+      `No local VTrans RWIS near ${locationDisplay} — using weather/traffic API fallback layers`
+    );
+  }
   let fullClosingScore = 0;
   let delayScore = 0;
   let earlyDismissalScore = 0;
@@ -423,14 +532,13 @@ export async function predictSnowDay(
   
   if (snowfall >= fullClosingThreshold) {
     const excess = snowfall - fullClosingThreshold;
-    fullClosingScore += 40 + (excess * 5); // Base 40%, +5% per inch over threshold
+    fullClosingScore += 40 + (excess * 5);
     factors.push(`${snowfall.toFixed(1)}" snow (threshold: ${fullClosingThreshold}")`);
   } else if (snowfall >= fullClosingThreshold * 0.8) {
     fullClosingScore += 20; // Near threshold
     factors.push(`Approaching snowfall threshold`);
   } else if (snowfall > 0) {
-    // GRANULAR: Even small snowfall amounts add to the score proportionally
-    // 0-1": 2-5 points, 1-2": 5-10 points, 2-4": 10-20 points
+   
     const snowScore = Math.min(snowfall * 5, 20);
     fullClosingScore += snowScore;
     delayScore += Math.min(snowfall * 3, 15);
@@ -633,10 +741,70 @@ export async function predictSnowDay(
   // NOTE: Regular rain (without "freezing" or "ice") is explicitly NOT counted
   // Rain alone does not cause school closures - only ice and snow do
 
-  // Factor 8: Road conditions from Xweather and other sources (enhances prediction accuracy)
+  // Factor 8: Local road / VTrans RWIS near this ZIP (enhances prediction accuracy)
   // CRITICAL: Superintendents check plow reports at 4-6 AM - are roads passable?
-  // Road crew consultation: Districts coordinate with road crews before deciding
   const xweatherConditions = roadConditions.filter(rc => rc.source === 'Xweather');
+  const localRwis = roadConditions.filter(rc => rc.source === 'VTrans RWIS');
+  if (localRwis.length > 0) {
+    factors.push(
+      `${localRwis.length} VTrans RWIS station${localRwis.length > 1 ? 's' : ''} within range of ${locationDisplay}`
+    );
+    // Closest stations first (what a ZIP-local answer should cite)
+    const closest = localRwis.slice(0, 3);
+    closest.forEach((r) => {
+      factors.push(
+        `Nearest: ${r.stationName || r.route} (${r.distanceMiles.toFixed(1)} mi): ${r.condition}` +
+          (r.surfaceFriction !== undefined ? `, μ=${r.surfaceFriction.toFixed(2)}` : '') +
+          (r.pavementTemperature !== undefined
+            ? `, pavement ${r.pavementTemperature.toFixed(0)}°F`
+            : '')
+      );
+    });
+    // Then any lower-grip stations farther out in the same radius
+    const lowestGrip = [...localRwis]
+      .filter((r) => r.surfaceFriction !== undefined)
+      .sort((a, b) => (a.surfaceFriction ?? 1) - (b.surfaceFriction ?? 1))
+      .slice(0, 3)
+      .filter(
+        (r) =>
+          !closest.some(
+            (c) => c.stationName === r.stationName && c.route === r.route
+          )
+      );
+    lowestGrip.forEach((r) => {
+      factors.push(
+        `Lower grip nearby: ${r.stationName || r.route} (${r.distanceMiles.toFixed(1)} mi): ${r.condition}` +
+          (r.surfaceFriction !== undefined ? `, μ=${r.surfaceFriction.toFixed(2)}` : '') +
+          (r.pavementTemperature !== undefined
+            ? `, pavement ${r.pavementTemperature.toFixed(0)}°F`
+            : '')
+      );
+    });
+    const icyLocal = localRwis.filter((r) => r.condition === 'ice');
+    const wetNearFreeze = localRwis.filter(
+      (r) =>
+        r.condition === 'wet' &&
+        ((r.pavementTemperature !== undefined && r.pavementTemperature <= 35) ||
+          (r.temperature !== undefined && r.temperature <= 35))
+    );
+    if (icyLocal.length > 0) {
+      fullClosingScore += Math.min(icyLocal.length * 8, 24);
+      delayScore += Math.min(icyLocal.length * 5, 15);
+      factors.push(
+        `Local RWIS ice-risk at ${icyLocal.map((r) => r.stationName || r.route).join(', ')} — bus routes may be unsafe`
+      );
+    }
+    if (wetNearFreeze.length > 0) {
+      delayScore += Math.min(wetNearFreeze.length * 3, 12);
+      factors.push(
+        `Local RWIS wet pavement near freezing near ${wetNearFreeze
+          .slice(0, 2)
+          .map((r) => r.stationName || r.route)
+          .join(', ')}`
+      );
+    }
+  }
+
   const dangerousRoadConditions = roadConditions.filter(rc => 
     rc.condition === 'ice' || 
     rc.condition === 'snow-covered' || 
@@ -736,6 +904,8 @@ export async function predictSnowDay(
   if (forecast.snowfall && forecast.snowfall > 0) confidence += 10; // Actual snowfall data available
   if (forecast.ice && forecast.ice > 0) confidence += 10; // Ice data detected
   if (roadConditions.length > 0) confidence += 5; // Road condition data from multiple sources
+  if (localRwis.length > 0) confidence += Math.min(localRwis.length, 8); // ZIP-local VTrans sensors
+  if (resolvedZip) confidence += 5; // Precise ZIP geocode for forecast point
   if (historicalClosings.length >= 5) confidence += 5; // Historical pattern data
   if (thresholds.total_predictions && thresholds.total_predictions > 10) confidence += 5; // District has prediction history
   confidence = Math.min(confidence, 100);
@@ -788,12 +958,22 @@ export async function predictSnowDay(
       closureReasons.push(`Extreme cold (${temperatureF.toFixed(0)}°F)`);
     }
     
-    // ROAD CONDITIONS (critical for bus safety)
+    // ROAD CONDITIONS (critical for bus safety) — prefer named local stations
     const dangerousRoads = roadConditions.filter(rc => 
       rc.condition === 'ice' || rc.condition === 'snow-covered' || rc.condition === 'closed'
     );
     if (dangerousRoads.length > 0) {
-      closureReasons.push(`Dangerous road conditions (${dangerousRoads.length} reported) - roads not passable for buses`);
+      const named = dangerousRoads
+        .slice(0, 3)
+        .map(
+          (r) =>
+            `${r.stationName || r.route}` +
+            (r.distanceMiles ? ` (${r.distanceMiles.toFixed(1)} mi)` : '')
+        )
+        .join(', ');
+      closureReasons.push(
+        `Dangerous local road sensors: ${named} — roads may not be passable for buses`
+      );
     }
     
     // WIND + SNOW (drifting)
@@ -831,12 +1011,23 @@ export async function predictSnowDay(
     full_closing_probability: Math.round(fullClosingScore),
     delay_probability: Math.round(delayScore),
     early_dismissal_probability: Math.round(earlyDismissalScore),
-    confidence: Math.round(confidence),
+    confidence: Math.min(100, Math.round(confidence)),
     forecast,
     factors,
     primary_reason: primaryReason, // NEW: Clear explanation of WHY schools would close
     closure_reasons: closureReasons, // NEW: Array of specific reasons
     thresholds,
+    locationContext: {
+      zip: resolvedZip?.zip || zipFromInput || undefined,
+      city: resolvedZip?.city || district.city,
+      county: district.county,
+      latitude: originLat,
+      longitude: originLon,
+      displayName: locationDisplay,
+      weatherQuery: location,
+    },
+    nearbySensors: roadConditions.slice(0, 12),
+    localSensorBriefing: localSensorBriefing || undefined,
   };
 }
 

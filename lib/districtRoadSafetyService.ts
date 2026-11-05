@@ -6,6 +6,13 @@
 import { fetchAllRoadConditions } from './roadDataService';
 import { getDistrictByZipCode, getDistrictByName, getAllDistricts, SchoolDistrict } from './schoolDistrictService';
 import { fetchWeatherFromProvider } from './unifiedWeatherService';
+import {
+  resolveVermontZip,
+  filterConditionsNearLocation,
+  scopeConditionsForLocation,
+  formatLocalRWISBriefing,
+  hasVTransRWIS,
+} from './vermontLocationService';
 
 export interface RoadSafetyRating {
   district: string;
@@ -59,23 +66,36 @@ export async function calculateDistrictRoadSafety(
     }
   }
 
-  // Determine location for weather data - prefer coordinates for accuracy, then city, then district name
-  // This improves Xweather data accuracy by using district-specific locations
+  // ZIP → lat/lon when the identifier is a zip (or district has zip codes)
+  const zipCandidate =
+    typeof districtIdentifier === 'string' && /^\d{5}$/.test(districtIdentifier)
+      ? districtIdentifier
+      : district?.zip_codes?.[0];
+  const resolvedZip = zipCandidate ? await resolveVermontZip(zipCandidate) : null;
+
+  // Prefer ZIP coords, then district coords, then city / name
   let location = typeof districtIdentifier === 'string' ? districtIdentifier : 'Vermont';
-  if (district) {
-    if (district.latitude && district.longitude) {
-      // Use coordinates for most accurate location-specific data (best for Xweather)
-      location = `${district.latitude},${district.longitude}`;
-    } else if (district.city) {
-      // Use city name (better than district name for Xweather)
-      location = district.city;
-    } else if (district.district_name) {
-      location = district.district_name;
-    }
+  let originLat: number | undefined;
+  let originLon: number | undefined;
+  if (resolvedZip) {
+    location = resolvedZip.weatherQuery;
+    originLat = resolvedZip.latitude;
+    originLon = resolvedZip.longitude;
+  } else if (district?.latitude && district?.longitude) {
+    location = `${district.latitude},${district.longitude}`;
+    originLat = district.latitude;
+    originLon = district.longitude;
+  } else if (district?.city) {
+    location = district.city;
+  } else if (district?.district_name) {
+    location = district.district_name;
   }
   
   // Use district name for the rating result, or location name if no district found
-  const districtName = district?.district_name || location;
+  const districtName =
+    district?.district_name ||
+    resolvedZip?.displayName ||
+    location;
   
   let currentWeather;
   
@@ -91,9 +111,12 @@ export async function calculateDistrictRoadSafety(
     console.error('Error fetching weather for district:', error);
   }
 
-  // Get road conditions for the area (using district's zip codes or city)
-  // CRITICAL: Use district-specific location to get accurate local road conditions
-  const roadConditions = await fetchAllRoadConditions(location);
+  // Nearby sensors + weather/traffic API layers (APIs are fallback when no RWIS)
+  const allRoadConditions = await fetchAllRoadConditions(location);
+  const roadConditions =
+    originLat !== undefined && originLon !== undefined
+      ? scopeConditionsForLocation(allRoadConditions, originLat, originLon, 40)
+      : allRoadConditions;
   
   // Factor in district-specific geography (county, elevation, etc.)
   // This ensures districts in different areas get different ratings even with similar weather
@@ -123,6 +146,58 @@ export async function calculateDistrictRoadSafety(
   const warnings: string[] = [];
   const recommendations: string[] = [];
   const dataSources: string[] = [];
+
+  if (resolvedZip) {
+    conditions.push(`ZIP ${resolvedZip.zip} (${resolvedZip.city}) — forecast & sensors scoped to this point`);
+    dataSources.push('ZIP geocode');
+  }
+  if (!hasVTransRWIS(roadConditions)) {
+    conditions.push(
+      'No local VTrans RWIS — scoring with weather APIs + traffic/closures fallback'
+    );
+    const apiNames = [
+      ...new Set(
+        roadConditions
+          .map((c) => c.source)
+          .filter((s) => s !== 'VTrans RWIS')
+      ),
+    ];
+    if (apiNames.length) dataSources.push(...apiNames.slice(0, 6));
+  }
+  const rwisOnly = roadConditions.filter((c) => c.source === 'VTrans RWIS');
+  if (rwisOnly.length > 0) {
+    dataSources.push('VTrans RWIS');
+    const nearbyForBrief =
+      originLat !== undefined && originLon !== undefined
+        ? filterConditionsNearLocation(rwisOnly, originLat, originLon, 40)
+        : rwisOnly.map((c) => ({ ...c, distanceMiles: 0 }));
+    recommendations.push(
+      ...formatLocalRWISBriefing(districtName, nearbyForBrief, { maxStations: 5 })
+        .split('\n')
+        .filter((line) => /^\d+\./.test(line.trim()))
+        .slice(0, 5)
+    );
+    nearbyForBrief.slice(0, 5).forEach((c) => {
+      conditions.push(
+        `${c.stationName || c.route} (${c.distanceMiles.toFixed(1)} mi): ${c.condition}` +
+          (c.surfaceFriction !== undefined ? `, μ=${c.surfaceFriction.toFixed(2)}` : '') +
+          (c.pavementTemperature !== undefined
+            ? `, pavement ${c.pavementTemperature.toFixed(0)}°F`
+            : '')
+      );
+      if (c.condition === 'ice' || (c.surfaceFriction !== undefined && c.surfaceFriction < 0.55)) {
+        score -= 12;
+        warnings.push(
+          `Local sensor ${c.stationName || c.route}: ${c.condition}` +
+            (c.surfaceFriction !== undefined ? ` (μ=${c.surfaceFriction.toFixed(2)})` : '')
+        );
+      } else if (c.condition === 'wet') {
+        score -= 4;
+      } else if (c.condition === 'snow-covered') {
+        score -= 10;
+      }
+    });
+  }
   
   let tempF = 0;
   let windMph = 0;

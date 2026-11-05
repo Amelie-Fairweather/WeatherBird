@@ -220,10 +220,10 @@ export async function fetchVTransIncidentData(xmlData?: string): Promise<VTransI
       return parseVTransIncidentsXML(xmlData);
     }
     
-    // Fetch from New England Compass Developer Portal
+    // Live C2C XmlDataPortal (public Developer Portal download links)
     const endpoints = [
+      'https://nec-por.ne-compass.com/NEC.XmlDataPortal/api/c2c?networks=Vermont&dataTypes=incidentData',
       'https://nec-por.ne-compass.com/DeveloperPortal/Incidents/Vermont',
-      'https://nec-por.ne-compass.com/DeveloperPortal/Incidents/Vermont.xml',
     ];
     
     for (const endpoint of endpoints) {
