@@ -297,25 +297,25 @@ function BasicRoadInfo({ road }: { road: DangerousRoad }) {
 
   return (
     <>
-      <h4 className="font-bold font-cormorant text-lg mb-1 text-[var(--darkBlue)]">
+      <h4 className="font-bold font-cormorant text-xl mb-1 text-[var(--darkBlue)]">
         {road.stationName || road.route}
       </h4>
       {road.stationName && road.stationName !== road.route && (
-        <p className="text-xs text-gray-500 font-cormorant mb-2">{road.route}</p>
+        <p className="text-base text-gray-500 font-cormorant mb-2">{road.route}</p>
       )}
       
       {/* PROMINENT SAFETY SCORE DISPLAY */}
       <div className={`inline-block px-4 py-3 rounded-lg border-3 mb-3 shadow-md w-full text-center ${getRatingBg(road.safetyLevel)}`}>
         <div className="text-center">
-          <div className="text-xs font-semibold font-cormorant text-gray-600 mb-1 uppercase tracking-wide">8-FACTOR SAFETY SCORE</div>
-          <div className={`text-4xl font-bold font-cormorant ${getRatingColor(road.safetyLevel)} mb-1`}>
+          <div className="text-base font-semibold font-cormorant text-gray-600 mb-1 uppercase tracking-wide">8-FACTOR SAFETY SCORE</div>
+          <div className={`text-5xl font-bold font-cormorant ${getRatingColor(road.safetyLevel)} mb-1`}>
             {road.safetyScore}/100
           </div>
-          <div className={`text-base font-bold font-cormorant ${getRatingColor(road.safetyLevel)}`}>
+          <div className={`text-xl font-bold font-cormorant ${getRatingColor(road.safetyLevel)}`}>
             {road.safetyLevel.toUpperCase()}
           </div>
           {road.confidence !== undefined && (
-            <div className="text-xs text-gray-600 font-cormorant mt-1">
+            <div className="text-base text-gray-600 font-cormorant mt-1">
               Confidence {road.confidence}%
               {road.source ? ` · ${road.source}` : ''}
             </div>
@@ -323,27 +323,27 @@ function BasicRoadInfo({ road }: { road: DangerousRoad }) {
         </div>
       </div>
       
-      <p className="text-sm text-gray-700 font-cormorant mb-3 italic text-center">
+      <p className="text-lg text-gray-700 font-cormorant mb-3 italic text-center leading-relaxed">
         {getSafetyDescription(road.safetyScore, road.safetyLevel)}
       </p>
 
       {/* Live metrics strip */}
       {road.metrics && (
-        <div className="grid grid-cols-2 gap-1 mb-3 text-xs font-cormorant">
+        <div className="grid grid-cols-2 gap-2 mb-3 text-base font-cormorant">
           {road.metrics.frictionMu !== undefined && (
-            <div className="bg-gray-50 rounded px-2 py-1">μ {road.metrics.frictionMu.toFixed(2)}</div>
+            <div className="bg-gray-50 rounded px-2 py-1.5">μ {road.metrics.frictionMu.toFixed(2)}</div>
           )}
           {road.metrics.pavementTempF !== undefined && (
-            <div className="bg-gray-50 rounded px-2 py-1">Pavement {road.metrics.pavementTempF}°F</div>
+            <div className="bg-gray-50 rounded px-2 py-1.5">Pavement {road.metrics.pavementTempF}°F</div>
           )}
           {road.metrics.airTempF !== undefined && (
-            <div className="bg-gray-50 rounded px-2 py-1">Air {road.metrics.airTempF}°F</div>
+            <div className="bg-gray-50 rounded px-2 py-1.5">Air {road.metrics.airTempF}°F</div>
           )}
           {road.metrics.windMph !== undefined && (
-            <div className="bg-gray-50 rounded px-2 py-1">Wind {road.metrics.windMph} mph</div>
+            <div className="bg-gray-50 rounded px-2 py-1.5">Wind {road.metrics.windMph} mph</div>
           )}
           {road.metrics.dataAgeMinutes !== undefined && (
-            <div className="bg-gray-50 rounded px-2 py-1 col-span-2">
+            <div className="bg-gray-50 rounded px-2 py-1.5 col-span-2">
               Data age {road.metrics.dataAgeMinutes} min
             </div>
           )}
@@ -351,15 +351,15 @@ function BasicRoadInfo({ road }: { road: DangerousRoad }) {
       )}
       
       <div className="mt-2 pt-2 border-t border-gray-300">
-        <p className="text-sm text-gray-800 font-cormorant mb-2">
+        <p className="text-lg text-gray-800 font-cormorant mb-2">
           <span className="font-semibold">Condition:</span>{' '}
           <span className="capitalize">{road.condition}</span>
         </p>
-        <p className="text-sm text-gray-700 font-cormorant mb-2">
+        <p className="text-lg text-gray-700 font-cormorant mb-2 leading-relaxed">
           {road.description}
         </p>
         {road.actionableInsights && road.actionableInsights.length > 0 && (
-          <ul className="text-xs text-gray-700 font-cormorant mb-2 space-y-1 list-disc pl-4">
+          <ul className="text-base text-gray-700 font-cormorant mb-2 space-y-1 list-disc pl-4">
             {road.actionableInsights.slice(0, 4).map((insight, i) => (
               <li key={i}>{insight}</li>
             ))}
@@ -367,8 +367,8 @@ function BasicRoadInfo({ road }: { road: DangerousRoad }) {
         )}
         {road.warning && (
           <div className="mt-2 pt-2 border-t border-gray-300">
-            <p className="text-xs text-gray-700 font-cormorant font-semibold mb-1">Warning</p>
-            <p className="text-xs text-gray-600 font-cormorant">{road.warning}</p>
+            <p className="text-base text-gray-700 font-cormorant font-semibold mb-1">Warning</p>
+            <p className="text-base text-gray-600 font-cormorant leading-relaxed">{road.warning}</p>
           </div>
         )}
       </div>
@@ -378,29 +378,29 @@ function BasicRoadInfo({ road }: { road: DangerousRoad }) {
           <button
             type="button"
             onClick={() => setShowFactors((v) => !v)}
-            className="w-full text-xs font-cormorant font-semibold text-blue-700 hover:text-blue-900 py-1"
+            className="w-full text-base font-cormorant font-semibold text-blue-700 hover:text-blue-900 py-1"
           >
             {showFactors ? 'Hide' : 'Show'} 8-factor breakdown
           </button>
           {showFactors && (
-            <div className="mt-2 space-y-2 max-h-48 overflow-y-auto">
+            <div className="mt-2 space-y-3 max-h-56 overflow-y-auto">
               {factorEntries.map((f, i) => (
-                <div key={i} className="text-xs font-cormorant">
+                <div key={i} className="text-base font-cormorant">
                   <div className="flex justify-between mb-0.5">
                     <span className="font-semibold">{f.label || 'Factor'}</span>
                     <span>{Math.round(f.score)}/100 · w{f.weight}</span>
                   </div>
-                  <div className="h-1.5 bg-gray-200 rounded overflow-hidden">
+                  <div className="h-2 bg-gray-200 rounded overflow-hidden">
                     <div
                       className={`h-full ${f.score >= 70 ? 'bg-green-500' : f.score >= 45 ? 'bg-amber-500' : 'bg-red-500'}`}
                       style={{ width: `${Math.max(4, Math.min(100, f.score))}%` }}
                     />
                   </div>
-                  <p className="text-gray-600 mt-0.5 leading-snug">{f.description}</p>
+                  <p className="text-gray-600 mt-1 leading-snug">{f.description}</p>
                 </div>
               ))}
               {road.topRisks && road.topRisks.length > 0 && (
-                <p className="text-xs font-semibold text-red-700 font-cormorant pt-1">
+                <p className="text-base font-semibold text-red-700 font-cormorant pt-1">
                   Top risks: {road.topRisks.map((r) => r.label).join(', ')}
                 </p>
               )}
@@ -409,7 +409,7 @@ function BasicRoadInfo({ road }: { road: DangerousRoad }) {
         </div>
       )}
       
-      <p className="text-xs text-blue-600 font-cormorant mt-3 pt-2 border-t border-gray-200 italic text-center">
+      <p className="text-base text-blue-600 font-cormorant mt-3 pt-2 border-t border-gray-200 italic text-center">
         Click again for full district assessment
       </p>
     </>
@@ -465,17 +465,17 @@ function DetailedRoadAssessment({ assessment }: { assessment: DetailedAssessment
     <div className="space-y-3">
       {/* Header */}
       <div>
-        <h4 className="font-bold font-cormorant text-xl mb-3 text-[var(--darkBlue)]">
+        <h4 className="font-bold font-cormorant text-2xl mb-3 text-[var(--darkBlue)]">
           {assessment.route}
         </h4>
         {/* PROMINENT SAFETY SCORE DISPLAY */}
         <div className={`inline-block px-4 py-3 rounded-lg border-3 mb-3 shadow-md w-full text-center ${getSeverityBg(assessment.severity || assessment.rating || 'moderate')}`}>
           <div className="text-center">
-            <div className="text-xs font-semibold font-cormorant text-gray-600 mb-1 uppercase tracking-wide">SAFETY SCORE</div>
-            <div className={`text-4xl font-bold font-cormorant ${getRatingColor(assessment.safetyRating || assessment.rating || 'good')} mb-1`}>
+            <div className="text-base font-semibold font-cormorant text-gray-600 mb-1 uppercase tracking-wide">SAFETY SCORE</div>
+            <div className={`text-5xl font-bold font-cormorant ${getRatingColor(assessment.safetyRating || assessment.rating || 'good')} mb-1`}>
               {assessment.safetyScore || assessment.score}/100
             </div>
-            <div className={`text-base font-bold font-cormorant ${getRatingColor(assessment.safetyRating || assessment.rating || 'good')}`}>
+            <div className={`text-xl font-bold font-cormorant ${getRatingColor(assessment.safetyRating || assessment.rating || 'good')}`}>
               {(assessment.safetyRating || assessment.rating || 'good').toUpperCase()}
             </div>
           </div>
@@ -485,10 +485,10 @@ function DetailedRoadAssessment({ assessment }: { assessment: DetailedAssessment
       {/* Critical Warnings */}
       {assessment.criticalWarnings && assessment.criticalWarnings.length > 0 && (
         <div className="bg-red-50 border-l-4 border-red-500 p-3">
-          <p className="font-bold font-cormorant text-red-800 mb-2">⚠️ CRITICAL WARNINGS:</p>
+          <p className="font-bold font-cormorant text-red-800 mb-2 text-lg">CRITICAL WARNINGS:</p>
           <ul className="space-y-1">
             {assessment.criticalWarnings.map((warning: string, idx: number) => (
-              <li key={idx} className="text-sm text-red-700 font-cormorant">• {warning}</li>
+              <li key={idx} className="text-base text-red-700 font-cormorant">• {warning}</li>
             ))}
           </ul>
         </div>
@@ -496,8 +496,8 @@ function DetailedRoadAssessment({ assessment }: { assessment: DetailedAssessment
       
       {/* Current Conditions */}
       <div className="border-t pt-2">
-        <p className="text-sm font-semibold font-cormorant text-gray-700 mb-1">Current Conditions:</p>
-        <p className="text-sm text-gray-800 font-cormorant">
+        <p className="text-base font-semibold font-cormorant text-gray-700 mb-1">Current Conditions:</p>
+        <p className="text-lg text-gray-800 font-cormorant leading-relaxed">
           {assessment.temperatureF && <>Temperature: <span className="font-bold">{assessment.temperatureF}°F</span> | </>}
           {assessment.condition && <>Condition: <span className="font-bold">{assessment.condition}</span> | </>}
           {assessment.roadCondition && <>Road: <span className="font-bold">{assessment.roadCondition}</span></>}
@@ -506,8 +506,8 @@ function DetailedRoadAssessment({ assessment }: { assessment: DetailedAssessment
       
       {/* Risk Factors */}
       <div className="border-t pt-2">
-        <p className="text-sm font-semibold font-cormorant text-gray-700 mb-2">Risk Factors:</p>
-        <div className="space-y-2 text-xs">
+        <p className="text-base font-semibold font-cormorant text-gray-700 mb-2">Risk Factors:</p>
+        <div className="space-y-2 text-base">
           {assessment.factors?.temperatureRisk && (
             <div className="flex justify-between">
               <span className="font-cormorant">Temperature Risk:</span>
@@ -546,18 +546,18 @@ function DetailedRoadAssessment({ assessment }: { assessment: DetailedAssessment
       {/* Recommendations */}
       {assessment.recommendations && assessment.recommendations.length > 0 && (
         <div className="border-t pt-2">
-          <p className="text-sm font-semibold font-cormorant text-gray-700 mb-2">Recommendations:</p>
-          <div className="space-y-1 max-h-48 overflow-y-auto">
+          <p className="text-base font-semibold font-cormorant text-gray-700 mb-2">Recommendations:</p>
+          <div className="space-y-2 max-h-48 overflow-y-auto">
             {assessment.recommendations
               .sort((a: { priority: string }, b: { priority: string }) => {
                 const priorityOrder: Record<string, number> = { critical: 0, high: 1, moderate: 2, low: 3 };
                 return priorityOrder[a.priority] - priorityOrder[b.priority];
               })
               .map((rec: { priority: string; text?: string; action?: string; reasoning?: string }, idx: number) => (
-                <div key={idx} className={`p-2 rounded text-xs ${rec.priority === 'critical' ? 'bg-red-50 border-l-2 border-red-500' : rec.priority === 'high' ? 'bg-red-50 border-l-2 border-red-500' : 'bg-gray-50'}`}>
+                <div key={idx} className={`p-3 rounded text-base ${rec.priority === 'critical' ? 'bg-red-50 border-l-2 border-red-500' : rec.priority === 'high' ? 'bg-red-50 border-l-2 border-red-500' : 'bg-gray-50'}`}>
                   {rec.action && <p className="font-semibold font-cormorant text-gray-800">{rec.action}</p>}
-                  {rec.reasoning && <p className="text-gray-600 font-cormorant mt-1">{rec.reasoning}</p>}
-                  {rec.text && <p className="text-gray-600 font-cormorant mt-1">{rec.text}</p>}
+                  {rec.reasoning && <p className="text-gray-600 font-cormorant mt-1 leading-relaxed">{rec.reasoning}</p>}
+                  {rec.text && <p className="text-gray-600 font-cormorant mt-1 leading-relaxed">{rec.text}</p>}
                 </div>
               ))}
           </div>
@@ -566,11 +566,11 @@ function DetailedRoadAssessment({ assessment }: { assessment: DetailedAssessment
       
       {/* Travel Advice */}
       {assessment.travelAdvice && (
-        <div className={`border-t pt-2 ${assessment.travelAdvice.recommended ? 'bg-green-50' : 'bg-red-50'} p-2 rounded`}>
-          <p className="text-sm font-semibold font-cormorant mb-1">
-            Travel Recommendation: {assessment.travelAdvice.recommended ? '✅ RECOMMENDED' : '❌ NOT RECOMMENDED'}
+        <div className={`border-t pt-2 ${assessment.travelAdvice.recommended ? 'bg-green-50' : 'bg-red-50'} p-3 rounded`}>
+          <p className="text-lg font-semibold font-cormorant mb-1">
+            Travel Recommendation: {assessment.travelAdvice.recommended ? 'RECOMMENDED' : 'NOT RECOMMENDED'}
           </p>
-          <p className="text-xs text-gray-700 font-cormorant">
+          <p className="text-base text-gray-700 font-cormorant">
             Urgency: {assessment.travelAdvice.urgency.replace('_', ' ').toUpperCase()} | 
             Difficulty: {assessment.travelAdvice.estimatedDifficulty}
           </p>
@@ -579,7 +579,7 @@ function DetailedRoadAssessment({ assessment }: { assessment: DetailedAssessment
       
       {/* Data Quality */}
       {assessment.dataQuality && (
-        <div className="border-t pt-2 text-xs text-gray-500 font-cormorant">
+        <div className="border-t pt-2 text-base text-gray-500 font-cormorant">
           <p>Data Confidence: {assessment.dataQuality.confidence}%</p>
           <p>Sources: {assessment.dataQuality.dataSources.join(', ')}</p>
           {assessment.lastUpdated && <p>Last Updated: {new Date(assessment.lastUpdated).toLocaleString()}</p>}
@@ -735,20 +735,20 @@ export default function VermontRoadSafetyMap() {
         </div>
         
         {/* Road Search Feature */}
-        <div className="bg-white p-4 rounded-lg border border-gray-200 mb-3">
-          <h4 className="text-sm font-bold font-cormorant text-gray-700 mb-2">Search for a Road</h4>
+        <div className="bg-white p-5 rounded-lg border border-gray-200 mb-3">
+          <h4 className="text-lg font-bold font-cormorant text-gray-700 mb-3">Search for a Road</h4>
           <form onSubmit={handleSearch} className="flex gap-2">
             <input
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="e.g., I-89, US Route 7, I-89 Burlington"
-              className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm font-cormorant focus:outline-none focus:ring-2 focus:ring-blue-500"
+              placeholder="e.g., Spear Street, I-89, US Route 7"
+              className="flex-1 px-4 py-3 border border-gray-300 rounded-lg text-base font-cormorant focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
             <button
               type="submit"
               disabled={searchLoading || !searchQuery.trim()}
-              className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-cormorant font-semibold hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="px-5 py-3 bg-blue-600 text-white rounded-lg text-base font-cormorant font-semibold hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {searchLoading ? 'Searching...' : 'Search'}
             </button>
@@ -756,12 +756,12 @@ export default function VermontRoadSafetyMap() {
           
           {/* Search Results */}
           {searchResult && searchResult.success && (
-            <div className="mt-4 p-4 bg-gray-50 rounded-lg border border-gray-200">
-              <div className="flex items-center justify-between mb-3">
-                <h5 className="text-lg font-bold font-cormorant text-gray-800">
+            <div className="mt-5 p-5 bg-gray-50 rounded-lg border border-gray-200">
+              <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+                <h5 className="text-2xl font-bold font-cormorant text-gray-800">
                   {searchResult.assessment.route}
                 </h5>
-                <div className={`px-3 py-1 rounded-full text-sm font-bold font-cormorant ${
+                <div className={`px-4 py-2 rounded-full text-lg font-bold font-cormorant ${
                   searchResult.assessment.safetyRating === 'excellent' ? 'bg-green-100 text-green-800' :
                   searchResult.assessment.safetyRating === 'good' ? 'bg-blue-100 text-blue-800' :
                   searchResult.assessment.safetyRating === 'caution' ? 'bg-yellow-100 text-yellow-800' :
@@ -772,25 +772,25 @@ export default function VermontRoadSafetyMap() {
                 </div>
               </div>
               
-              <div className="space-y-2 text-sm font-cormorant">
-                <p className="text-gray-700">
+              <div className="space-y-3 text-lg font-cormorant leading-relaxed">
+                <p className="text-gray-800">
                   <span className="font-semibold">Condition:</span> {searchResult.assessment.condition}
                 </p>
-                <p className="text-gray-700">
+                <p className="text-gray-800">
                   <span className="font-semibold">Road Surface:</span> {searchResult.assessment.roadCondition}
                 </p>
-                <p className="text-gray-700">
+                <p className="text-gray-800">
                   <span className="font-semibold">Temperature:</span> {searchResult.assessment.temperatureF}°F
                 </p>
-                <p className="text-gray-700">
+                <p className="text-gray-800">
                   <span className="font-semibold">Severity:</span> {searchResult.assessment.severity}
                 </p>
 
                 {searchResult.assessment.nearbySensors &&
                   searchResult.assessment.nearbySensors.length > 0 && (
-                  <div className="mt-3 p-2 bg-emerald-50 border border-emerald-200 rounded">
-                    <p className="font-semibold text-emerald-900 mb-1">Nearest VTrans RWIS</p>
-                    <ul className="space-y-1 text-xs text-emerald-900">
+                  <div className="mt-4 p-3 bg-emerald-50 border border-emerald-200 rounded">
+                    <p className="font-semibold text-emerald-900 mb-2 text-lg">Nearest VTrans RWIS</p>
+                    <ul className="space-y-2 text-base text-emerald-900">
                       {searchResult.assessment.nearbySensors.slice(0, 3).map(
                         (
                           s: {
@@ -814,46 +814,46 @@ export default function VermontRoadSafetyMap() {
                 )}
                 
                 {searchResult.assessment.criticalWarnings.length > 0 && (
-                  <div className="mt-3 p-2 bg-red-50 border border-red-200 rounded">
-                    <p className="font-semibold text-red-800 mb-1">⚠️ Critical Warnings:</p>
-                    <ul className="list-disc list-inside text-red-700 space-y-1">
+                  <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded">
+                    <p className="font-semibold text-red-800 mb-2 text-lg">Critical Warnings:</p>
+                    <ul className="list-disc list-inside text-red-700 space-y-2 text-base">
                       {searchResult.assessment.criticalWarnings.map((warning, idx) => (
-                        <li key={idx} className="text-xs">{warning}</li>
+                        <li key={idx}>{warning}</li>
                       ))}
                     </ul>
                   </div>
                 )}
                 
-                <div className="mt-3 p-2 bg-blue-50 border border-blue-200 rounded">
-                  <p className="font-semibold text-blue-800 mb-1">Travel Advice:</p>
-                  <p className="text-blue-700 text-xs">
+                <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded">
+                  <p className="font-semibold text-blue-800 mb-2 text-lg">Travel Advice:</p>
+                  <p className="text-blue-800 text-base mb-1">
                     <span className="font-semibold">Recommended:</span> {searchResult.assessment.travelAdvice.recommended ? 'Yes' : 'No'}
                   </p>
-                  <p className="text-blue-700 text-xs">
+                  <p className="text-blue-800 text-base mb-1">
                     <span className="font-semibold">Urgency:</span> {searchResult.assessment.travelAdvice.urgency.replace('_', ' ')}
                   </p>
-                  <p className="text-blue-700 text-xs">
+                  <p className="text-blue-800 text-base mb-1">
                     <span className="font-semibold">Difficulty:</span> {searchResult.assessment.travelAdvice.estimatedDifficulty}
                   </p>
-                  <p className="text-blue-700 text-xs">
+                  <p className="text-blue-800 text-base">
                     <span className="font-semibold">Travel Time:</span> {searchResult.assessment.travelAdvice.estimatedTravelTime}
                   </p>
                 </div>
                 
                 {searchResult.assessment.recommendations.length > 0 && (
-                  <div className="mt-3">
-                    <p className="font-semibold text-gray-800 mb-1">Recommendations:</p>
-                    <ul className="space-y-1">
+                  <div className="mt-4">
+                    <p className="font-semibold text-gray-800 mb-2 text-lg">Recommendations:</p>
+                    <ul className="space-y-2">
                       {searchResult.assessment.recommendations.slice(0, 3).map((rec, idx) => (
-                        <li key={idx} className="text-xs text-gray-700">
-                          <span className="font-semibold">{rec.priority}:</span> {rec.action} - {rec.reasoning}
+                        <li key={idx} className="text-base text-gray-800">
+                          <span className="font-semibold">{rec.priority}:</span> {rec.action} — {rec.reasoning}
                         </li>
                       ))}
                     </ul>
                   </div>
                 )}
                 
-                <p className="text-xs text-gray-500 mt-2 italic">
+                <p className="text-base text-gray-600 mt-3 italic">
                   Confidence: {searchResult.assessment.dataQuality.confidence}% | 
                   Sources: {searchResult.assessment.dataQuality.dataSources.join(', ')}
                 </p>
@@ -864,7 +864,7 @@ export default function VermontRoadSafetyMap() {
                   setSearchResult(null);
                   setSearchQuery('');
                 }}
-                className="mt-3 text-xs text-gray-500 hover:text-gray-700 font-cormorant"
+                className="mt-4 text-base text-gray-600 hover:text-gray-900 font-cormorant font-semibold"
               >
                 Close
               </button>

@@ -173,10 +173,10 @@ export default function MyComponent() {
                 RAIN
               </Link>
               <Link 
-                href="/emergency"
-                className="w-36 h-14 flex items-center justify-center bg-white hover:bg-gray-50 text-[var(--darkBlue)] font-cormorant font-bold text-lg border border-gray-200 rounded transition-all hover:shadow-md"
+                href="/superintendents"
+                className="w-44 h-14 flex items-center justify-center bg-white hover:bg-gray-50 text-[var(--darkBlue)] font-cormorant font-bold text-lg border border-gray-200 rounded transition-all hover:shadow-md"
               >
-                EMERGENCY
+                SUPERINTENDENTS
               </Link>
             </div>
           </div>

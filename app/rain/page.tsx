@@ -140,10 +140,10 @@ export default function RainPage() {
             RAIN
           </Link>
           <Link 
-            href="/emergency"
+            href="/superintendents"
             className="px-4 py-2 bg-[var(--neutralBlue)] text-white rounded-lg hover:bg-[var(--neutralBlueDark)] transition-colors font-cormorant font-bold"
           >
-            EMERGENCY
+            SUPERINTENDENTS
           </Link>
         </div>
       </div>

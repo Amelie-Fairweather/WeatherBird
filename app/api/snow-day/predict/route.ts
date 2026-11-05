@@ -1,6 +1,57 @@
-import { predictSnowDay, predictSnowDaysForWeek, getProbabilityCategory } from '@/lib/snowDayPredictionService';
+import { predictSnowDay, predictSnowDaysForWeek, getProbabilityCategory, type SnowDayPrediction, type SuperintendentInput } from '@/lib/snowDayPredictionService';
 import { NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabaseClient';
+
+function serializeStudentRoutes(pred: SnowDayPrediction) {
+  if (!pred.studentRoutes) return undefined;
+  const sr = pred.studentRoutes;
+  return {
+    summary: sr.summary,
+    passable: sr.passable,
+    routeHazardScore: sr.routeHazardScore,
+    highSchools: sr.highSchools.map((h) => ({
+      name: h.name,
+      city: h.city,
+      approachCorridors: h.approachCorridors,
+    })),
+    corridorSensors: sr.corridorSensors.slice(0, 6).map((s) => ({
+      stationName: s.stationName,
+      route: s.route,
+      distanceMiles: s.distanceMiles,
+      condition: s.condition,
+      pavementTemperature: s.pavementTemperature,
+      surfaceFriction: s.surfaceFriction,
+      onNamedCorridor: s.onNamedCorridor,
+    })),
+  };
+}
+
+function serializePrediction(pred: SnowDayPrediction) {
+  return {
+    predicted_for_date: pred.predicted_for_date,
+    probabilities: {
+      full_closing: pred.full_closing_probability,
+      delay: pred.delay_probability,
+      early_dismissal: pred.early_dismissal_probability,
+    },
+    categories: {
+      full_closing: getProbabilityCategory(pred.full_closing_probability),
+      delay: getProbabilityCategory(pred.delay_probability),
+      early_dismissal: getProbabilityCategory(pred.early_dismissal_probability),
+    },
+    confidence: pred.confidence,
+    forecast: {
+      temperature_f: Math.round((pred.forecast.temperature * 9) / 5 + 32),
+      snowfall_inches: pred.forecast.snowfall?.toFixed(1),
+      wind_speed_mph: Math.round(pred.forecast.windSpeed * 2.237),
+      condition: pred.forecast.condition,
+    },
+    factors: pred.factors,
+    primary_reason: pred.primary_reason,
+    closure_reasons: pred.closure_reasons,
+    studentRoutes: serializeStudentRoutes(pred),
+  };
+}
 
 /**
  * POST /api/snow-day/predict
@@ -10,6 +61,7 @@ import { supabase } from '@/lib/supabaseClient';
  *   district: string (zip code, district name, district ID, OR location like "Vermont", "Burlington", "Montpelier")
  *   date?: string (ISO date string, optional - if not provided, returns multi-day predictions for tomorrow + week)
  *   multiDay?: boolean (optional - defaults to true for week predictions)
+ *   superintendent?: SuperintendentInput (optional overrides from Superintendents workspace)
  * }
  * 
  * If district is not found in database, uses Vermont-wide default thresholds and location-based weather data.
@@ -17,7 +69,9 @@ import { supabase } from '@/lib/supabaseClient';
  */
 export async function POST(request: Request) {
   try {
-    const { district, date, multiDay } = await request.json();
+    const body = await request.json();
+    const { district, date, multiDay } = body;
+    const superintendent = body.superintendent as SuperintendentInput | undefined;
 
     if (!district) {
       return NextResponse.json(
@@ -34,7 +88,7 @@ export async function POST(request: Request) {
       // Get multi-day predictions (tomorrow + next 7 days)
       let multiDayPredictions;
       try {
-        multiDayPredictions = await predictSnowDaysForWeek(district);
+        multiDayPredictions = await predictSnowDaysForWeek(district, superintendent);
       } catch (predictionError) {
         console.error('Error in predictSnowDaysForWeek:', predictionError);
         const errorMsg = predictionError instanceof Error ? predictionError.message : 'Unknown error';
@@ -62,27 +116,7 @@ export async function POST(request: Request) {
       return NextResponse.json({
         district: multiDayPredictions.district_name,
         multiDay: true,
-        predictions: multiDayPredictions.predictions.map(pred => ({
-          predicted_for_date: pred.predicted_for_date,
-          probabilities: {
-            full_closing: pred.full_closing_probability,
-            delay: pred.delay_probability,
-            early_dismissal: pred.early_dismissal_probability,
-          },
-          categories: {
-            full_closing: getProbabilityCategory(pred.full_closing_probability),
-            delay: getProbabilityCategory(pred.delay_probability),
-            early_dismissal: getProbabilityCategory(pred.early_dismissal_probability),
-          },
-          confidence: pred.confidence,
-          forecast: {
-            temperature_f: Math.round((pred.forecast.temperature * 9/5) + 32),
-            snowfall_inches: pred.forecast.snowfall?.toFixed(1),
-            wind_speed_mph: Math.round(pred.forecast.windSpeed * 2.237),
-            condition: pred.forecast.condition,
-          },
-          factors: pred.factors,
-        })),
+        predictions: multiDayPredictions.predictions.map(serializePrediction),
       });
     }
 
@@ -96,7 +130,7 @@ export async function POST(request: Request) {
     })();
 
     // Get prediction
-    const prediction = await predictSnowDay(district, forecastDate);
+    const prediction = await predictSnowDay(district, forecastDate, superintendent);
 
     if (!prediction) {
       return NextResponse.json(
@@ -137,25 +171,7 @@ export async function POST(request: Request) {
     return NextResponse.json({
       district: prediction.district_name,
       prediction_date: prediction.prediction_date,
-      predicted_for_date: prediction.predicted_for_date,
-      probabilities: {
-        full_closing: prediction.full_closing_probability,
-        delay: prediction.delay_probability,
-        early_dismissal: prediction.early_dismissal_probability,
-      },
-      categories: {
-        full_closing: getProbabilityCategory(prediction.full_closing_probability),
-        delay: getProbabilityCategory(prediction.delay_probability),
-        early_dismissal: getProbabilityCategory(prediction.early_dismissal_probability),
-      },
-      confidence: prediction.confidence,
-      forecast: {
-        temperature_f: Math.round((prediction.forecast.temperature * 9/5) + 32),
-        snowfall_inches: prediction.forecast.snowfall?.toFixed(1),
-        wind_speed_mph: Math.round(prediction.forecast.windSpeed * 2.237),
-        condition: prediction.forecast.condition,
-      },
-      factors: prediction.factors,
+      ...serializePrediction(prediction),
       thresholds: prediction.thresholds ? {
         full_closing_snowfall: prediction.thresholds.full_closing_snowfall_threshold,
         delay_snowfall: prediction.thresholds.delay_snowfall_threshold,
@@ -243,27 +259,7 @@ export async function GET(request: Request) {
       return NextResponse.json({
         district: multiDayPredictions.district_name,
         multiDay: true,
-        predictions: multiDayPredictions.predictions.map(pred => ({
-          predicted_for_date: pred.predicted_for_date,
-          probabilities: {
-            full_closing: pred.full_closing_probability,
-            delay: pred.delay_probability,
-            early_dismissal: pred.early_dismissal_probability,
-          },
-          categories: {
-            full_closing: getProbabilityCategory(pred.full_closing_probability),
-            delay: getProbabilityCategory(pred.delay_probability),
-            early_dismissal: getProbabilityCategory(pred.early_dismissal_probability),
-          },
-          confidence: pred.confidence,
-          forecast: {
-            temperature_f: Math.round((pred.forecast.temperature * 9/5) + 32),
-            snowfall_inches: pred.forecast.snowfall?.toFixed(1),
-            wind_speed_mph: Math.round(pred.forecast.windSpeed * 2.237),
-            condition: pred.forecast.condition,
-          },
-          factors: pred.factors,
-        })),
+        predictions: multiDayPredictions.predictions.map(serializePrediction),
       });
     }
 
@@ -291,25 +287,7 @@ export async function GET(request: Request) {
     return NextResponse.json({
       district: prediction.district_name,
       prediction_date: prediction.prediction_date,
-      predicted_for_date: prediction.predicted_for_date,
-      probabilities: {
-        full_closing: prediction.full_closing_probability,
-        delay: prediction.delay_probability,
-        early_dismissal: prediction.early_dismissal_probability,
-      },
-      categories: {
-        full_closing: getProbabilityCategory(prediction.full_closing_probability),
-        delay: getProbabilityCategory(prediction.delay_probability),
-        early_dismissal: getProbabilityCategory(prediction.early_dismissal_probability),
-      },
-      confidence: prediction.confidence,
-      forecast: {
-        temperature_f: Math.round((prediction.forecast.temperature * 9/5) + 32),
-        snowfall_inches: prediction.forecast.snowfall?.toFixed(1),
-        wind_speed_mph: Math.round(prediction.forecast.windSpeed * 2.237),
-        condition: prediction.forecast.condition,
-      },
-      factors: prediction.factors,
+      ...serializePrediction(prediction),
     });
   } catch (error) {
     console.error('Error in snow day prediction:', error);

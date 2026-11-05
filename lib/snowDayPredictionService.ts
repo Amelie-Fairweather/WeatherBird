@@ -26,6 +26,16 @@ import {
   type NearbyRoadCondition,
   type VermontZipLocation,
 } from './vermontLocationService';
+import {
+  assessStudentRoutes,
+  type StudentRouteAssessment,
+} from './studentRouteService';
+import {
+  formatAnnounceByHour,
+  type SuperintendentInput,
+} from './superintendentInput';
+
+export type { SuperintendentInput } from './superintendentInput';
 
 export interface WeatherForecast {
   temperature: number; // Celsius
@@ -77,6 +87,8 @@ export interface SnowDayPrediction {
   /** Closest VTrans RWIS / road sensors to this ZIP or district */
   nearbySensors?: NearbyRoadCondition[];
   localSensorBriefing?: string;
+  /** High-school student/bus corridor assessment from VTrans pavement data */
+  studentRoutes?: StudentRouteAssessment;
 }
 
 export interface MultiDaySnowDayPredictions {
@@ -131,7 +143,8 @@ function estimateSnowfall(precipitationMm: number, temperatureC: number): number
  */
 export async function predictSnowDay(
   districtIdentifier: string | number, // zip code, district name, or district ID
-  forecastDate?: Date // date to predict for (default: tomorrow)
+  forecastDate?: Date, // date to predict for (default: tomorrow)
+  superintendent?: SuperintendentInput
 ): Promise<SnowDayPrediction | null> {
   
   // Get district
@@ -168,6 +181,11 @@ export async function predictSnowDay(
     };
   }
 
+  // Superintendent feeder towns can refine city context
+  if (superintendent?.feederTowns && superintendent.feederTowns.length > 0 && !district.city) {
+    district = { ...district, city: superintendent.feederTowns[0] };
+  }
+
   // Get thresholds - use defaults if district not found or thresholds don't exist
   let thresholds;
   if (isFallbackDistrict) {
@@ -201,12 +219,28 @@ export async function predictSnowDay(
     }
   }
 
+  // Superintendent-entered thresholds override DB/defaults
+  if (superintendent?.thresholds) {
+    const t = superintendent.thresholds;
+    thresholds = {
+      ...thresholds,
+      full_closing_snowfall_threshold:
+        t.fullClosingSnow ?? thresholds.full_closing_snowfall_threshold,
+      delay_snowfall_threshold: t.delaySnow ?? thresholds.delay_snowfall_threshold,
+      ice_threshold: t.ice ?? thresholds.ice_threshold,
+      temperature_threshold: t.tempF ?? thresholds.temperature_threshold,
+      wind_speed_threshold: t.windMph ?? thresholds.wind_speed_threshold,
+      manual_override: true,
+    };
+  }
+
   // ZIP → lat/lon → local forecast + nearby RWIS (critical for data-driven answers)
   const identifierStr = String(districtIdentifier);
   const zipFromInput =
     /^\d{5}$/.test(identifierStr)
       ? identifierStr
       : extractZipCode(identifierStr) ||
+        superintendent?.feederZips?.[0] ||
         (district.zip_codes && district.zip_codes[0]) ||
         null;
 
@@ -398,14 +432,11 @@ export async function predictSnowDay(
           originLon,
           40
         );
-        const nearbyDist = new Map(
-          nearby.map(
-            (c) =>
-              [
-                `${c.source}|${c.route}|${c.latitude}|${c.longitude}|${c.timestamp}`,
-                c.distanceMiles,
-              ] as const
-          )
+        const nearbyDist = new Map<string, number>(
+          nearby.map((c) => [
+            `${c.source}|${c.route}|${c.latitude}|${c.longitude}|${c.timestamp}`,
+            c.distanceMiles,
+          ])
         );
         roadConditions = scoped.map((c) => {
           const key = `${c.source}|${c.route}|${c.latitude}|${c.longitude}|${c.timestamp}`;
@@ -741,7 +772,141 @@ export async function predictSnowDay(
   // NOTE: Regular rain (without "freezing" or "ice") is explicitly NOT counted
   // Rain alone does not cause school closures - only ice and snow do
 
-  // Factor 8: Local road / VTrans RWIS near this ZIP (enhances prediction accuracy)
+  // Factor 8A (PRIMARY for closures): When a student/teacher enters a district,
+  // resolve that district's high school(s), check MAIN morning corridors into those
+  // schools with VTrans RWIS pavement/μ, and combine with sky/weather API forecast.
+  factors.push(
+    `Sky/weather APIs for ${locationDisplay}: ${forecast.condition}, ${snowfall.toFixed(1)}" snow, ${temperatureF.toFixed(0)}°F, wind ${windSpeedMph.toFixed(0)} mph`
+  );
+
+  let studentRouteAssessment: StudentRouteAssessment | null = null;
+  try {
+    const feederZips = [
+      ...(superintendent?.feederZips || []),
+      ...(zipFromInput ? [zipFromInput] : []),
+      ...(district.zip_codes || []),
+    ].filter((z, i, a) => a.indexOf(z) === i);
+
+    studentRouteAssessment = await assessStudentRoutes(district, roadConditions, {
+      highSchoolName: superintendent?.highSchool,
+      priorityCorridors: superintendent?.priorityCorridors,
+      feederTowns: superintendent?.feederTowns,
+      feederZips,
+    });
+    if (studentRouteAssessment.factors.length > 0) {
+      factors.push(...studentRouteAssessment.factors);
+    }
+    fullClosingScore += studentRouteAssessment.closingAdjustment;
+    delayScore += studentRouteAssessment.delayAdjustment;
+    if (studentRouteAssessment.summary) {
+      factors.push(studentRouteAssessment.summary);
+    }
+    console.log(
+      `[Snow Day] Student routes: ${studentRouteAssessment.highSchools.map((h) => h.name).join(', ') || 'none'} | ` +
+        `hazard ${studentRouteAssessment.routeHazardScore}/100 | ` +
+        `Δ close ${studentRouteAssessment.closingAdjustment} Δ delay ${studentRouteAssessment.delayAdjustment}`
+    );
+  } catch (studentRouteError) {
+    console.warn(
+      '[Snow Day] Student route assessment failed:',
+      studentRouteError instanceof Error ? studentRouteError.message : studentRouteError
+    );
+  }
+
+  // Factor 8A-extra: Superintendent morning notes, plow status, terrain, decision window
+  if (superintendent) {
+    const announceBy = superintendent.announceByHour ?? 5.25;
+    factors.push(`Decision window: announce by ${formatAnnounceByHour(announceBy)}`);
+
+    // Decision window: for near-term days, weigh the announce-by morning call
+    // (targetDate is normalized to midnight, so use hours-until + current clock)
+    const nowHour = new Date().getHours() + new Date().getMinutes() / 60;
+    const nearTermDecision =
+      hoursUntilTarget <= 30 &&
+      hoursUntilTarget >= -2 &&
+      (nowHour <= announceBy + 1 || hoursUntilTarget <= 12);
+    if (nearTermDecision) {
+      fullClosingScore += 10;
+      delayScore += 8;
+      factors.push(
+        `Inside superintendent decision window (~${formatAnnounceByHour(announceBy)}) — conditions checked before buses`
+      );
+    }
+
+    if (superintendent.terrain === 'rural') {
+      fullClosingScore += 8;
+      delayScore += 6;
+      if (windSpeedMph >= 15 && snowfall > 0) {
+        fullClosingScore += 8;
+        factors.push('Rural terrain: wind drift on side roads raises closure risk');
+      } else {
+        factors.push('Rural terrain: longer bus routes, slower plow coverage');
+      }
+    } else if (superintendent.terrain === 'mountain') {
+      fullClosingScore += 12;
+      delayScore += 8;
+      factors.push('Mountain routes: elevation/ice more likely; lower snowfall can still close');
+      if (snowfall >= 2) {
+        fullClosingScore += 6;
+      }
+    } else if (superintendent.terrain === 'urban') {
+      fullClosingScore = Math.max(0, fullClosingScore - 4);
+      factors.push('Urban terrain: city plows usually clear main bus corridors faster');
+    }
+
+    if (superintendent.plowStatus === 'behind') {
+      fullClosingScore += 22;
+      delayScore += 16;
+      factors.push('Superintendent note: plow progress behind — roads may not be passable by bus start');
+    } else if (superintendent.plowStatus === 'on_track') {
+      delayScore += 4;
+      factors.push('Superintendent note: plows on track — delay more likely than full close if weather holds');
+    } else if (superintendent.plowStatus === 'clear') {
+      fullClosingScore = Math.max(0, fullClosingScore - 12);
+      delayScore = Math.max(0, delayScore - 8);
+      factors.push('Superintendent note: major routes reported clear');
+    }
+
+    if (superintendent.knownIceSpots) {
+      fullClosingScore += 18;
+      delayScore += 14;
+      factors.push('Known ice spots on bus routes reported by district');
+    }
+    if (superintendent.parentReports) {
+      fullClosingScore += 10;
+      delayScore += 12;
+      factors.push('Parent/community hazard reports overnight — elevates delay/close caution');
+    }
+
+    if (superintendent.morningNotes?.trim()) {
+      const notes = superintendent.morningNotes.toLowerCase();
+      factors.push(`Morning notes: ${superintendent.morningNotes.trim().slice(0, 160)}`);
+      if (
+        notes.includes('ice') ||
+        notes.includes('impassable') ||
+        notes.includes('not plowed') ||
+        notes.includes('whiteout') ||
+        notes.includes('drift')
+      ) {
+        fullClosingScore += 15;
+        delayScore += 12;
+        factors.push('Morning notes indicate hazardous travel language');
+      }
+      if (notes.includes('clear') || notes.includes('good shape') || notes.includes('passable')) {
+        fullClosingScore = Math.max(0, fullClosingScore - 8);
+        factors.push('Morning notes suggest corridors improving');
+      }
+    }
+
+    if (superintendent.feederZips && superintendent.feederZips.length > 0) {
+      factors.push(`Feeder ZIPs considered: ${superintendent.feederZips.join(', ')}`);
+    }
+    if (superintendent.feederTowns && superintendent.feederTowns.length > 0) {
+      factors.push(`Feeder towns: ${superintendent.feederTowns.join(', ')}`);
+    }
+  }
+
+  // Factor 8B: Local road / VTrans RWIS near this ZIP (supports student-route finding)
   // CRITICAL: Superintendents check plow reports at 4-6 AM - are roads passable?
   const xweatherConditions = roadConditions.filter(rc => rc.source === 'Xweather');
   const localRwis = roadConditions.filter(rc => rc.source === 'VTrans RWIS');
@@ -780,6 +945,9 @@ export async function predictSnowDay(
             : '')
       );
     });
+    // Only apply generic local ice/wet bonuses when student-route scoring didn't already cover them
+    const studentAlreadyWeighted =
+      !!studentRouteAssessment && studentRouteAssessment.corridorSensors.length > 0;
     const icyLocal = localRwis.filter((r) => r.condition === 'ice');
     const wetNearFreeze = localRwis.filter(
       (r) =>
@@ -787,14 +955,14 @@ export async function predictSnowDay(
         ((r.pavementTemperature !== undefined && r.pavementTemperature <= 35) ||
           (r.temperature !== undefined && r.temperature <= 35))
     );
-    if (icyLocal.length > 0) {
+    if (!studentAlreadyWeighted && icyLocal.length > 0) {
       fullClosingScore += Math.min(icyLocal.length * 8, 24);
       delayScore += Math.min(icyLocal.length * 5, 15);
       factors.push(
         `Local RWIS ice-risk at ${icyLocal.map((r) => r.stationName || r.route).join(', ')} — bus routes may be unsafe`
       );
     }
-    if (wetNearFreeze.length > 0) {
+    if (!studentAlreadyWeighted && wetNearFreeze.length > 0) {
       delayScore += Math.min(wetNearFreeze.length * 3, 12);
       factors.push(
         `Local RWIS wet pavement near freezing near ${wetNearFreeze
@@ -905,6 +1073,10 @@ export async function predictSnowDay(
   if (forecast.ice && forecast.ice > 0) confidence += 10; // Ice data detected
   if (roadConditions.length > 0) confidence += 5; // Road condition data from multiple sources
   if (localRwis.length > 0) confidence += Math.min(localRwis.length, 8); // ZIP-local VTrans sensors
+  if (studentRouteAssessment?.highSchools.length) confidence += 6; // Resolved high-school destinations
+  if (studentRouteAssessment && studentRouteAssessment.corridorSensors.length > 0) {
+    confidence += Math.min(10, 4 + studentRouteAssessment.corridorSensors.length); // Live pavement on student routes
+  }
   if (resolvedZip) confidence += 5; // Precise ZIP geocode for forecast point
   if (historicalClosings.length >= 5) confidence += 5; // Historical pattern data
   if (thresholds.total_predictions && thresholds.total_predictions > 10) confidence += 5; // District has prediction history
@@ -925,9 +1097,21 @@ export async function predictSnowDay(
   const isDecisionWindowForReasons = forecastTargetHour >= 4 && forecastTargetHour <= 6;
   
   if (fullClosingScore >= 70) {
-    // Identify the main reason(s) for closure (prioritize timing and ice)
-    
-    // TIMING (most critical)
+    // Identify the main reason(s) for closure — student/bus routes to high school first
+    if (studentRouteAssessment && !studentRouteAssessment.passable) {
+      const hs = studentRouteAssessment.highSchools.map((h) => h.name).join(', ') || 'district high school';
+      closureReasons.push(
+        `VTrans pavement/surface unsafe on student routes to ${hs} (hazard ${studentRouteAssessment.routeHazardScore}/100)`
+      );
+    } else if (
+      studentRouteAssessment &&
+      studentRouteAssessment.routeHazardScore >= 55 &&
+      studentRouteAssessment.corridorSensors.length > 0
+    ) {
+      closureReasons.push(studentRouteAssessment.summary);
+    }
+
+    // TIMING (most critical for forecast-only cases)
     if (isMorningCommuteWindow && snowfall > 0) {
       closureReasons.push(`Snow during morning commute window (4-7 AM) - buses start at 6 AM`);
     } else if (isDecisionWindowForReasons && conditionLower.includes('snow')) {
@@ -1028,6 +1212,7 @@ export async function predictSnowDay(
     },
     nearbySensors: roadConditions.slice(0, 12),
     localSensorBriefing: localSensorBriefing || undefined,
+    studentRoutes: studentRouteAssessment || undefined,
   };
 }
 
@@ -1369,7 +1554,8 @@ export function getProbabilityCategory(probability: number): string {
  * This fetches all forecasts at once for efficiency
  */
 export async function predictSnowDaysForWeek(
-  districtIdentifier: string | number
+  districtIdentifier: string | number,
+  superintendent?: SuperintendentInput
 ): Promise<MultiDaySnowDayPredictions | null> {
   // Get district (or use fallback - predictSnowDay will handle fallback districts)
   let district;
@@ -1410,7 +1596,7 @@ export async function predictSnowDaysForWeek(
     targetDate.setHours(0, 0, 0, 0); // Normalize to start of day
     
     try {
-      const prediction = await predictSnowDay(districtIdentifier, targetDate);
+      const prediction = await predictSnowDay(districtIdentifier, targetDate, superintendent);
       if (prediction) {
         predictions.push(prediction);
         console.log(`[Snow Day Prediction] Day ${i} (${prediction.predicted_for_date}): Closing ${prediction.full_closing_probability}%, Delay ${prediction.delay_probability}%, Confidence ${prediction.confidence}%`);

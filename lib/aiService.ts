@@ -196,7 +196,7 @@ CRITICAL DATA RULES - THESE ARE MANDATORY FOR GOVERNMENT ACCURACY:
   * LOCATION FACTORS: Mountain roads, bridges, remote areas are more dangerous
   * Then provide YOUR OWN assessment: "The roads look [your assessment] because [specific conditions you see]"
   * Use your judgment based on the actual data, not just any provided ratings
-- SCHOOL CANCELLATION DECISIONS: You MUST independently assess school closure likelihood using ALL available data (weather, road conditions, alerts), NOT just repeat the calculator's probabilities. The calculator provides helpful context, but YOU should analyze:
+- SCHOOL CANCELLATION DECISIONS: When a student/teacher names a district, city, or ZIP, the system resolves that area's HIGH SCHOOL(S), checks the MAIN MORNING CORRIDORS into those schools with VTrans RWIS pavement/μ/surface data, and combines that with sky/weather APIs. You MUST independently assess closure likelihood using that school-corridor VTrans signal + weather APIs — not just repeat calculator percentages. Analyze:
   * CURRENT WEATHER DATA: Temperature, snowfall, ice, wind, conditions - analyze this yourself
   * ROAD CONDITIONS: Are roads icy, snow-covered, or closed? This is critical for bus safety - check the road conditions data
   * WEATHER ALERTS: Any active warnings that indicate dangerous conditions
@@ -377,6 +377,13 @@ ${multiDaySnowDayPredictions.predictions.map((pred, index) => {
   const dateStr = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
   const isTomorrow = index === 0;
   
+  const sr = pred.studentRoutes;
+  const studentBlock = sr
+    ? `- Student high school routes: ${sr.highSchools.map((h) => h.name).join(', ') || 'unresolved'} | hazard ${sr.routeHazardScore}/100 | ${sr.passable ? 'passable' : 'NOT passable'}
+- VTrans corridor sensors: ${sr.corridorSensors.slice(0, 3).map((s) => `${s.stationName} (${s.condition}${s.pavementTemperature !== undefined ? `, pavement ${s.pavementTemperature}°F` : ''}${s.surfaceFriction !== undefined ? `, μ=${s.surfaceFriction.toFixed(2)}` : ''})`).join('; ') || 'none on corridor'}
+- Student-route summary: ${sr.summary}`
+    : '- Student high school routes: not assessed';
+
   return `${isTomorrow ? '📅 TOMORROW' : `📅 ${dayName.toUpperCase()} (${dateStr})`}:
 - Date: ${dateStr} (${dayName})
 - Full School Closing Probability: ${pred.full_closing_probability}%
@@ -384,7 +391,8 @@ ${multiDaySnowDayPredictions.predictions.map((pred, index) => {
 - Early Dismissal Probability: ${pred.early_dismissal_probability}%
 - Confidence: ${pred.confidence}%
 - Forecast: ${Math.round((pred.forecast.temperature * 9/5) + 32)}°F, ${pred.forecast.snowfall?.toFixed(1) || '0'}" snow, ${pred.forecast.condition}
-- Key Factors: ${pred.factors.slice(0, 3).join('; ')}
+${studentBlock}
+- Key Factors: ${pred.factors.slice(0, 4).join('; ')}
 - Why schools would close: ${pred.primary_reason || 'No significant closure factors'}
 ${index < multiDaySnowDayPredictions.predictions.length - 1 ? '\n' : ''}`;
 }).join('\n')}
@@ -398,9 +406,10 @@ ${multiDaySnowDayPredictions.predictions[0]?.thresholds ? `
 ` : '- Using default thresholds'}
 
 CALCULATOR CONTEXT (use as reference, but make YOUR OWN assessment):
-- The calculator shows probabilities, but YOU should independently analyze the weather and road data
-- Look at: actual snowfall amounts, temperature, ice conditions, road closures, timing
-- Consider: Are buses safe? Can roads be plowed in time? Is there ice that makes travel dangerous?
+- Always name the high school(s) and main morning corridors checked for that district
+- Weight VTrans RWIS pavement/μ on those corridors most heavily (can buses reach campus?)
+- Also cite sky/weather API forecast (snow, ice, temp, wind) — both layers matter
+- Look at: corridor ice/snow-covered/closed sensors, snowfall, temperature, timing
 - Provide YOUR reasoning, not just the calculator's numbers`
 
     // Fall back to single day prediction if available
@@ -418,6 +427,13 @@ ${snowDayPrediction.locationContext.latitude !== undefined && snowDayPrediction.
 - Forecast point used: ${snowDayPrediction.locationContext.weatherQuery}
 ` : ''}
 ${snowDayPrediction.localSensorBriefing ? `\n${snowDayPrediction.localSensorBriefing}\n` : ''}
+${snowDayPrediction.studentRoutes ? `
+STUDENT ROUTES TO HIGH SCHOOL (PRIMARY CLOSURE SIGNAL — VTrans pavement/surface):
+- High schools: ${snowDayPrediction.studentRoutes.highSchools.map((h) => `${h.name} (${h.city}) via ${h.approachCorridors.slice(0, 4).join(', ')}`).join('; ') || 'unresolved'}
+- Route hazard: ${snowDayPrediction.studentRoutes.routeHazardScore}/100 | Passable: ${snowDayPrediction.studentRoutes.passable ? 'yes' : 'NO'}
+- Summary: ${snowDayPrediction.studentRoutes.summary}
+- Corridor sensors: ${snowDayPrediction.studentRoutes.corridorSensors.slice(0, 5).map((s) => `${s.stationName} ${s.distanceMiles}mi ${s.condition}${s.pavementTemperature !== undefined ? ` pavement ${s.pavementTemperature}°F` : ''}${s.surfaceFriction !== undefined ? ` μ=${s.surfaceFriction.toFixed(2)}` : ''}`).join('; ') || 'none'}
+` : ''}
 PROBABILITIES:
 - Full School Closing: ${snowDayPrediction.full_closing_probability}%
 - Delay (late start): ${snowDayPrediction.delay_probability}%
