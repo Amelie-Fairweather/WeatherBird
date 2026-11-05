@@ -55,6 +55,12 @@ function addUnique(list: string[], value: string): string[] {
 const inputClass =
   "w-full px-4 py-3 border border-gray-200 rounded focus:outline-none focus:border-[var(--gold)] bg-white text-base font-caveat placeholder-gray-400";
 
+function optionalThreshold(value: string): number | undefined {
+  if (!value.trim()) return undefined;
+  const n = parseFloat(value);
+  return Number.isFinite(n) ? n : undefined;
+}
+
 export default function SuperintendentsPage() {
   const highSchoolsByCounty = useMemo(() => {
     return VERMONT_HIGH_SCHOOL_COUNTIES.map((county) => ({
@@ -75,11 +81,11 @@ export default function SuperintendentsPage() {
   const [corridors, setCorridors] = useState<string[]>([]);
   const [corridorDraft, setCorridorDraft] = useState("");
   const [announceBy, setAnnounceBy] = useState("5:15");
-  const [fullClosingSnow, setFullClosingSnow] = useState("6");
-  const [delaySnow, setDelaySnow] = useState("3");
-  const [iceThreshold, setIceThreshold] = useState("0.25");
-  const [tempThreshold, setTempThreshold] = useState("10");
-  const [windThreshold, setWindThreshold] = useState("30");
+  const [fullClosingSnow, setFullClosingSnow] = useState("");
+  const [delaySnow, setDelaySnow] = useState("");
+  const [iceThreshold, setIceThreshold] = useState("");
+  const [tempThreshold, setTempThreshold] = useState("");
+  const [windThreshold, setWindThreshold] = useState("");
   const [plowStatus, setPlowStatus] = useState<
     "unknown" | "behind" | "on_track" | "clear"
   >("unknown");
@@ -138,11 +144,11 @@ export default function SuperintendentsPage() {
             priorityCorridors: corridors,
             announceByHour: parseAnnounceByTime(announceBy),
             thresholds: {
-              fullClosingSnow: parseFloat(fullClosingSnow) || undefined,
-              delaySnow: parseFloat(delaySnow) || undefined,
-              ice: parseFloat(iceThreshold) || undefined,
-              tempF: parseFloat(tempThreshold) || undefined,
-              windMph: parseFloat(windThreshold) || undefined,
+              fullClosingSnow: optionalThreshold(fullClosingSnow),
+              delaySnow: optionalThreshold(delaySnow),
+              ice: optionalThreshold(iceThreshold),
+              tempF: optionalThreshold(tempThreshold),
+              windMph: optionalThreshold(windThreshold),
             },
             morningNotes: morningNotes.trim() || undefined,
             plowStatus,
@@ -426,9 +432,29 @@ export default function SuperintendentsPage() {
               </section>
 
               <section className="space-y-4">
-                <h2 className="text-2xl font-bold font-cormorant text-[var(--darkBlue)]">
-                  Closing thresholds
-                </h2>
+                <div className="flex flex-wrap items-end justify-between gap-3">
+                  <div>
+                    <h2 className="text-2xl font-bold font-cormorant text-[var(--darkBlue)]">
+                      Adjust closing thresholds
+                    </h2>
+                    <p className="font-cormorant text-base text-gray-600 mt-1">
+                      Optional. Leave a field blank and it uses the system baseline: 6&quot; full close, 3&quot; delay, 0.25&quot; ice, 10°F, 30 mph.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setFullClosingSnow("");
+                      setDelaySnow("");
+                      setIceThreshold("");
+                      setTempThreshold("");
+                      setWindThreshold("");
+                    }}
+                    className="font-cormorant text-base text-[var(--darkBlue)] underline underline-offset-2 hover:text-[var(--neutralBlue)]"
+                  >
+                    Use system baselines
+                  </button>
+                </div>
                 <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
                   <div>
                     <label className="block font-cormorant text-sm text-gray-600 mb-1">
@@ -437,7 +463,9 @@ export default function SuperintendentsPage() {
                     <input
                       type="number"
                       step="0.5"
+                      min="0"
                       value={fullClosingSnow}
+                      placeholder="6"
                       onChange={(e) => setFullClosingSnow(e.target.value)}
                       className={inputClass}
                     />
@@ -449,7 +477,9 @@ export default function SuperintendentsPage() {
                     <input
                       type="number"
                       step="0.5"
+                      min="0"
                       value={delaySnow}
+                      placeholder="3"
                       onChange={(e) => setDelaySnow(e.target.value)}
                       className={inputClass}
                     />
@@ -461,7 +491,9 @@ export default function SuperintendentsPage() {
                     <input
                       type="number"
                       step="0.05"
+                      min="0"
                       value={iceThreshold}
+                      placeholder="0.25"
                       onChange={(e) => setIceThreshold(e.target.value)}
                       className={inputClass}
                     />
@@ -473,6 +505,7 @@ export default function SuperintendentsPage() {
                     <input
                       type="number"
                       value={tempThreshold}
+                      placeholder="10"
                       onChange={(e) => setTempThreshold(e.target.value)}
                       className={inputClass}
                     />
@@ -483,7 +516,9 @@ export default function SuperintendentsPage() {
                     </label>
                     <input
                       type="number"
+                      min="0"
                       value={windThreshold}
+                      placeholder="30"
                       onChange={(e) => setWindThreshold(e.target.value)}
                       className={inputClass}
                     />
