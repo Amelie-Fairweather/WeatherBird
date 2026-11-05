@@ -518,10 +518,10 @@ export async function calculateDetailedRoadSafetyScore(
   if (totalScore >= 85) {
     safetyLevel = 'excellent';
     severityOut = 'low';
-  } else if (totalScore >= 70) {
+  } else if (totalScore > 55) {
     safetyLevel = 'good';
     severityOut = 'low';
-  } else if (totalScore >= 50) {
+  } else if (totalScore >= 40) {
     safetyLevel = 'caution';
     severityOut = 'moderate';
   } else if (totalScore >= 30) {

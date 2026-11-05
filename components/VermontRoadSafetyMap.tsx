@@ -262,7 +262,7 @@ function BasicRoadInfo({ road }: { road: DangerousRoad }) {
   const getRatingColor = (rating: string) => {
     switch (rating) {
       case 'excellent': return 'text-green-700';
-      case 'good': return 'text-blue-700';
+      case 'good': return 'text-green-700';
       case 'caution': return 'text-red-700';
       case 'poor': return 'text-red-700';
       case 'hazardous': return 'text-red-900';
@@ -273,7 +273,7 @@ function BasicRoadInfo({ road }: { road: DangerousRoad }) {
   const getRatingBg = (rating: string) => {
     switch (rating) {
       case 'excellent': return 'bg-green-50 border-green-500';
-      case 'good': return 'bg-blue-50 border-blue-500';
+      case 'good': return 'bg-green-50 border-green-500';
       case 'caution': return 'bg-red-50 border-red-500';
       case 'poor': return 'bg-red-50 border-red-500';
       case 'hazardous': return 'bg-red-100 border-red-700';
@@ -444,7 +444,7 @@ function DetailedRoadAssessment({ assessment }: { assessment: DetailedAssessment
   const getRatingColor = (rating: string) => {
     switch (rating) {
       case 'excellent': return 'text-green-700';
-      case 'good': return 'text-blue-700';
+      case 'good': return 'text-green-700';
       case 'caution': return 'text-red-700';
       case 'poor': return 'text-red-700';
       case 'hazardous': return 'text-red-900';
@@ -763,7 +763,7 @@ export default function VermontRoadSafetyMap() {
                 </h5>
                 <div className={`px-4 py-2 rounded-full text-lg font-bold font-cormorant ${
                   searchResult.assessment.safetyRating === 'excellent' ? 'bg-green-100 text-green-800' :
-                  searchResult.assessment.safetyRating === 'good' ? 'bg-blue-100 text-blue-800' :
+                  searchResult.assessment.safetyRating === 'good' ? 'bg-green-100 text-green-800' :
                   searchResult.assessment.safetyRating === 'caution' ? 'bg-yellow-100 text-yellow-800' :
                   searchResult.assessment.safetyRating === 'poor' ? 'bg-orange-100 text-orange-800' :
                   'bg-red-100 text-red-800'
@@ -887,12 +887,12 @@ export default function VermontRoadSafetyMap() {
               <span>Excellent (80-100)</span>
             </div>
             <div className="flex items-center gap-2">
-              <div className="w-3 h-3 rounded-full bg-blue-500"></div>
-              <span>Good (60-79)</span>
+              <div className="w-3 h-3 rounded-full bg-green-500"></div>
+              <span>Good (56-84)</span>
             </div>
             <div className="flex items-center gap-2">
               <div className="w-5 h-5 rounded-full border-3 shadow-lg" style={{ backgroundColor: '#DC2626', borderColor: '#DC2626', borderWidth: '3px' }}></div>
-              <span className="font-bold text-red-700">⚠️ Caution (40-59) - Red = Moderate Risk Roads</span>
+              <span className="font-bold text-red-700">⚠️ Caution (40-55) - Red = Moderate Risk Roads</span>
             </div>
             <div className="flex items-center gap-2">
               <div className="w-3 h-3 rounded-full" style={{ backgroundColor: '#DC2626' }}></div>
@@ -1073,52 +1073,22 @@ export default function VermontRoadSafetyMap() {
             .filter(road => road.coordinates && road.coordinates.length >= 2)
             .map((road, index) => {
             // Show dangerous roads in red, safe roads in green/blue
-            const isDangerous = road.safetyLevel === 'caution' || 
-                               road.safetyLevel === 'poor' || 
-                               road.safetyLevel === 'hazardous';
-            
-            // Color code by safety level - dangerous in red, safe in green/blue
-            let color = '#DC2626'; // Default to red for dangerous
+            let color = '#DC2626';
             let weight = 5;
             let opacity = 0.8;
             
-            if (isDangerous) {
-              // Dangerous roads: red colors
-              switch (road.safetyLevel) {
-                case 'caution':
-                  color = '#DC2626'; // Red
-                  weight = 6;
-                  opacity = 0.9;
-                  break;
-                case 'poor':
-                  color = '#DC2626'; // Red
-                  weight = 5;
-                  opacity = 0.85;
-                  break;
-                case 'hazardous':
-                  color = '#991B1B'; // Deep dark red
-                  weight = 6;
-                  opacity = 0.9;
-                  break;
-              }
+            if (road.safetyScore > 55) {
+              color = '#10B981';
+              weight = 4;
+              opacity = 0.7;
+            } else if (road.safetyScore <= 20) {
+              color = '#991B1B';
+              weight = 6;
+              opacity = 0.9;
             } else {
-              // Safe roads: green/blue colors
-              switch (road.safetyLevel) {
-                case 'excellent':
-                  color = '#10B981'; // Green
-                  weight = 4;
-                  opacity = 0.7;
-                  break;
-                case 'good':
-                  color = '#3B82F6'; // Blue
-                  weight = 4;
-                  opacity = 0.7;
-                  break;
-                default:
-                  color = '#9CA3AF'; // Gray for unknown
-                  weight = 3;
-                  opacity = 0.5;
-              }
+              color = '#DC2626';
+              weight = 6;
+              opacity = 0.9;
             }
             
             return (
@@ -1154,15 +1124,12 @@ export default function VermontRoadSafetyMap() {
             });
             
             // Split into dangerous and safe - each road appears in ONLY ONE section
-            const dangerousRoads = Array.from(roadsByFullRoute.values()).filter(road => 
-              road.safetyLevel === 'caution' || 
-              road.safetyLevel === 'poor' || 
-              road.safetyLevel === 'hazardous'
+            const dangerousRoads = Array.from(roadsByFullRoute.values()).filter(road =>
+              road.safetyScore <= 55
             );
             
-            const safeRoads = Array.from(roadsByFullRoute.values()).filter(road => 
-              road.safetyLevel === 'excellent' || 
-              road.safetyLevel === 'good'
+            const safeRoads = Array.from(roadsByFullRoute.values()).filter(road =>
+              road.safetyScore > 55
             );
             
             return (

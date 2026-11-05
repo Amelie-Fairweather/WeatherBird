@@ -312,7 +312,7 @@ export async function calculateRoadSafetyAssessment(
   // Determine rating
   const safetyRating: RoadSafetyAssessment['safetyRating'] = 
     totalScore >= 80 ? 'excellent' :
-    totalScore >= 60 ? 'good' :
+    totalScore > 55 ? 'good' :
     totalScore >= 40 ? 'caution' :
     totalScore >= 20 ? 'poor' : 'hazardous';
   

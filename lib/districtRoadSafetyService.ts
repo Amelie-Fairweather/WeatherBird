@@ -422,7 +422,7 @@ export async function calculateDistrictRoadSafety(
   let rating: RoadSafetyRating['rating'];
   if (score >= 80) {
     rating = 'excellent';
-  } else if (score >= 60) {
+  } else if (score > 55) {
     rating = 'good';
   } else if (score >= 40) {
     rating = 'caution';
@@ -520,7 +520,7 @@ export async function calculateDistrictRoadSafety(
     },
     overallAssessment: score >= 80
       ? 'Excellent road conditions - safe for normal travel'
-      : score >= 60
+      : score > 55
       ? 'Good road conditions - normal winter driving precautions apply'
       : score >= 40
       ? 'Caution advised - adverse conditions present'
