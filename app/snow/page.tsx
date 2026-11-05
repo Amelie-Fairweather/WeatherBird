@@ -1,11 +1,15 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import dynamic from "next/dynamic";
 import SnowDayPredictionResults, {
   type SnowDayPredictionResponse,
 } from "@/components/SnowDayPredictionResults";
+import {
+  VERMONT_HIGH_SCHOOLS,
+  VERMONT_HIGH_SCHOOL_COUNTIES,
+} from "@/lib/vermontHighSchools";
 
 const VermontRoadSafetyMap = dynamic(() => import("@/components/VermontRoadSafetyMap"), {
   ssr: false,
@@ -17,15 +21,26 @@ const VermontRoadSafetyMap = dynamic(() => import("@/components/VermontRoadSafet
 });
 
 export default function SnowPage() {
-  const [location, setLocation] = useState("");
+  const [schoolName, setSchoolName] = useState("");
   const [loading, setLoading] = useState(false);
   const [prediction, setPrediction] = useState<SnowDayPredictionResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  const schoolsByCounty = useMemo(() => {
+    return VERMONT_HIGH_SCHOOL_COUNTIES.map((county) => ({
+      county,
+      schools: VERMONT_HIGH_SCHOOLS.filter((hs) => hs.county === county).sort((a, b) =>
+        a.name.localeCompare(b.name)
+      ),
+    })).filter((group) => group.schools.length > 0);
+  }, []);
+
+  const selectedSchool = VERMONT_HIGH_SCHOOLS.find((hs) => hs.name === schoolName);
+
   const handlePredict = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!location.trim()) {
-      setError("Please enter a zip code, district name, or location (e.g., 'Vermont', 'Burlington')");
+    if (!selectedSchool) {
+      setError("Select a high school.");
       return;
     }
 
@@ -34,9 +49,20 @@ export default function SnowPage() {
     setPrediction(null);
 
     try {
-      const response = await fetch(
-        `/api/snow-day/predict?district=${encodeURIComponent(location.trim())}`
-      );
+      const response = await fetch("/api/snow-day/predict", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          district: selectedSchool.zip || selectedSchool.city,
+          multiDay: true,
+          superintendent: {
+            highSchool: selectedSchool.name,
+            feederTowns: selectedSchool.feederTowns,
+            feederZips: selectedSchool.zip ? [selectedSchool.zip] : undefined,
+            priorityCorridors: selectedSchool.approachCorridors,
+          },
+        }),
+      });
       const data = await response.json();
 
       if (!response.ok) {
@@ -95,20 +121,33 @@ export default function SnowPage() {
             Snow Day Calculator
           </h1>
           <p className="text-lg font-cormorant text-gray-700 mb-8">
-            Enter a district, city, or ZIP. We find the high school(s), check the main roads
-            feeding into campus with VTrans RWIS pavement data, and combine that with sky/weather
-            APIs for a closing / delay call.
+            Select a high school. We check the main roads into that campus with VTrans RWIS
+            pavement data and combine that with the sky forecast for a closing / delay call.
           </p>
 
           <div className="bg-white rounded-lg shadow-md p-6 mb-6 border border-[var(--gold)]/30">
-            <form onSubmit={handlePredict} className="flex gap-3">
-              <input
-                type="text"
-                value={location}
-                onChange={(e) => setLocation(e.target.value)}
-                placeholder="Enter zip code, district, or location (e.g., 05401, Vermont, Burlington)"
-                className="flex-1 px-4 py-3 border border-gray-200 rounded focus:outline-none focus:border-[var(--gold)] bg-white text-base font-caveat placeholder-gray-400"
-              />
+            <form onSubmit={handlePredict} className="flex flex-col md:flex-row gap-3">
+              <label className="sr-only" htmlFor="school-select">
+                High school
+              </label>
+              <select
+                id="school-select"
+                value={schoolName}
+                onChange={(e) => setSchoolName(e.target.value)}
+                className="flex-1 px-4 py-3 border border-gray-200 rounded focus:outline-none focus:border-[var(--gold)] bg-white text-base font-cormorant"
+              >
+                <option value="">Select a high school…</option>
+                {schoolsByCounty.map((group) => (
+                  <optgroup key={group.county} label={`${group.county} County`}>
+                    {group.schools.map((hs) => (
+                      <option key={hs.name} value={hs.name}>
+                        {hs.name}
+                        {hs.city ? ` — ${hs.city}` : ""}
+                      </option>
+                    ))}
+                  </optgroup>
+                ))}
+              </select>
               <button
                 type="submit"
                 disabled={loading}
