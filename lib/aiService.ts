@@ -438,6 +438,8 @@ PROBABILITIES:
 - Full School Closing: ${snowDayPrediction.full_closing_probability}%
 - Delay (late start): ${snowDayPrediction.delay_probability}%
 - Early Dismissal: ${snowDayPrediction.early_dismissal_probability}%
+${snowDayPrediction.decision_category ? `- Training decision: ${snowDayPrediction.decision_category}` : ''}
+${snowDayPrediction.p_closed != null ? `- Multinomial: close ${(snowDayPrediction.p_closed * 100).toFixed(0)}% / delay ${((snowDayPrediction.p_delay || 0) * 100).toFixed(0)}% / open ${((snowDayPrediction.p_open || 0) * 100).toFixed(0)}%` : ''}
 
 WEATHER FORECAST (for this ZIP/district point):
 - Temperature: ${Math.round((snowDayPrediction.forecast.temperature * 9/5) + 32)}°F
@@ -463,17 +465,19 @@ ${snowDayPrediction.thresholds ? `
 - Wind Speed Threshold: ${snowDayPrediction.thresholds.wind_speed_threshold || 'N/A'} mph
 ` : '- Using default thresholds'}
 
-CALCULATOR CONTEXT (use as reference, but make YOUR OWN assessment):
-- The calculator provides probabilities, but YOU should independently analyze the actual weather and road conditions
-- Look at the FORECAST data: snowfall amounts, temperature, ice, wind, conditions
-- Check ROAD CONDITIONS: Are there closures? Ice? Snow-covered roads? This is critical for bus safety
-- Consider TIMING: When is snow/ice expected? Morning storms are more disruptive
-- Provide YOUR OWN reasoning based on the actual data, not just repeat the calculator's percentages
+TRAINED VERMONT DECISION RULES (from labeled cases VT-SND-001..020):
+- Blend: ~70% VTrans corridor hazard + ~30% sky/weather score
+- Close hard for: ice/freezing rain with μ < ~0.30, hazard ≥ 70, ≥6" during AM bus window, noreasters, lake wind ≥30 mph with drifting
+- Prefer 2-hr delay when: overnight snow finished before ~5 AM and μ recovering (≥0.45), or moderate 4–5.5" with plows working
+- Open when: rain above freezing, light snow ended early with μ ≥ 0.60, late-start sub-threshold urban snow
+- CRITICAL OVERRIDE: arctic bus-stop wind chill (≤ −25°F) can CLOSE even when pavement is clear/dry
+- Baselines: 6" close / 3" delay / 0.25" ice / 10°F / 30 mph
 
-CRITICAL CONTEXT - WHY SCHOOLS CLOSE:
-- Schools close ONLY for: SNOW (especially 4+ inches), ICE (freezing rain, black ice), EXTREME COLD (below 10°F), DANGEROUS ROAD CONDITIONS (closures, ice, snow-covered roads that can't be plowed)
-- Schools do NOT close for: Regular rain (without freezing/ice), light precipitation above freezing, cloudy weather
-- The KEY QUESTION: Can buses safely transport students? If roads are icy, snow-covered, or closed, schools close`
+CALCULATOR CONTEXT (use as reference, but make YOUR OWN assessment):
+- Weight VTrans pavement/μ on school morning corridors most heavily
+- Look at forecast snow/ice/temp/wind AND live corridor sensors
+- Timing matters as much as totals — morning commute snow ≠ overnight snow that was plowed
+- The KEY QUESTION: Can buses safely pick up students and reach campus?`
     : '';
 
   // Build conversation history context (last 4 messages for context, but keep it concise)

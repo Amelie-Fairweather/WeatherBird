@@ -1,0 +1,779 @@
+{
+  "version": "1.0.0",
+  "description": "Labeled Vermont snow-day decision cases for calibrating scoring, VTrans blend, and category labels.",
+  "baselines": {
+    "full_closing_snowfall_inches": 6,
+    "delay_snowfall_inches": 3,
+    "ice_inches": 0.25,
+    "extreme_cold_f": 10,
+    "high_wind_mph": 30,
+    "vtrans_weight": 0.7,
+    "weather_weight": 0.3,
+    "hazard_floor": 70,
+    "clear_corridor_cap": 42,
+    "critical_mu": 0.3,
+    "bus_stop_wind_chill_f": -25
+  },
+  "cases": [
+    {
+      "id": "VT-SND-001",
+      "district_info": {
+        "county": "Chittenden",
+        "high_school": "Champlain Valley Union High School",
+        "zip_code": "05461",
+        "corridors": ["CVU Road", "Mechanicsville Road", "VT-116"],
+        "rwis_station": "VT-116 Hinesburg RWIS"
+      },
+      "weather_inputs": {
+        "snowfall_inches": 8.5,
+        "temp_f": 18,
+        "wind_mph": 22,
+        "wind_chill_f": 4,
+        "ice_inches": 0.0,
+        "freezing_rain": false,
+        "timing_window": "4 AM - 6 AM heavy band",
+        "condition_text": "Heavy Snow / Blowing Snow"
+      },
+      "rwis_inputs": {
+        "pavement_temp_f": 26,
+        "surface_condition": "Snow Covered / Slush",
+        "friction_coefficient_mu": 0.28
+      },
+      "scoring_breakdown": {
+        "weather_score": 78,
+        "corridor_rwis_hazard": 75,
+        "blended_final_score": 75.9,
+        "guards_applied": ["Corridor Hazard >= 70 Floor Applied"]
+      },
+      "outputs": {
+        "p_closed": 0.78,
+        "p_delay": 0.2,
+        "p_open": 0.02,
+        "category_label": "Closed (Snow Day)",
+        "rationale": "High snowfall rate during 4-6 AM commute window combined with VTrans friction readings below 0.30 on VT-116 corridor."
+      }
+    },
+    {
+      "id": "VT-SND-002",
+      "district_info": {
+        "county": "Washington",
+        "high_school": "Union 32 High School (U-32)",
+        "zip_code": "05651",
+        "corridors": ["Gallison Hill Road", "US-2"],
+        "rwis_station": "US-2 East Montpelier RWIS"
+      },
+      "weather_inputs": {
+        "snowfall_inches": 2.0,
+        "temp_f": 22,
+        "wind_mph": 12,
+        "wind_chill_f": 12,
+        "ice_inches": 0.2,
+        "freezing_rain": true,
+        "timing_window": "Starts 5 AM",
+        "condition_text": "Freezing Rain / Glaze Ice"
+      },
+      "rwis_inputs": {
+        "pavement_temp_f": 29,
+        "surface_condition": "Icy / Black Ice",
+        "friction_coefficient_mu": 0.18
+      },
+      "scoring_breakdown": {
+        "weather_score": 92,
+        "corridor_rwis_hazard": 88,
+        "blended_final_score": 89.2,
+        "guards_applied": ["Corridor Hazard >= 70 Floor Applied"]
+      },
+      "outputs": {
+        "p_closed": 0.91,
+        "p_delay": 0.07,
+        "p_open": 0.02,
+        "category_label": "Closed (Snow Day)",
+        "rationale": "Freezing rain morning window creates extremely low friction (0.18 mu) on critical primary corridors."
+      }
+    },
+    {
+      "id": "VT-SND-003",
+      "district_info": {
+        "county": "Rutland",
+        "high_school": "Rutland High School",
+        "zip_code": "05701",
+        "corridors": ["Stratton Road", "Post Road", "US-7"],
+        "rwis_station": "US-7 Rutland South RWIS"
+      },
+      "weather_inputs": {
+        "snowfall_inches": 3.0,
+        "temp_f": 28,
+        "wind_mph": 8,
+        "wind_chill_f": 22,
+        "ice_inches": 0.0,
+        "freezing_rain": false,
+        "timing_window": "Ending by 4 AM",
+        "condition_text": "Light Snow Ending"
+      },
+      "rwis_inputs": {
+        "pavement_temp_f": 31,
+        "surface_condition": "Wet / Treated",
+        "friction_coefficient_mu": 0.62
+      },
+      "scoring_breakdown": {
+        "weather_score": 35,
+        "corridor_rwis_hazard": 20,
+        "blended_final_score": 24.5,
+        "guards_applied": ["Clear Corridor Capped <= 42%"]
+      },
+      "outputs": {
+        "p_closed": 0.1,
+        "p_delay": 0.25,
+        "p_open": 0.65,
+        "category_label": "Open (Normal)",
+        "rationale": "Light snow ended early; municipal plowing treated pavements effectively with friction returning above 0.60."
+      }
+    },
+    {
+      "id": "VT-SND-004",
+      "district_info": {
+        "county": "Franklin",
+        "high_school": "Bellows Free Academy - St. Albans",
+        "zip_code": "05478",
+        "corridors": ["South Main Street (US-7)", "Lake Street (VT-36)"],
+        "rwis_station": "I-89 Exit 19 St. Albans RWIS"
+      },
+      "weather_inputs": {
+        "snowfall_inches": 4.5,
+        "temp_f": 14,
+        "wind_mph": 28,
+        "wind_chill_f": -2,
+        "ice_inches": 0.0,
+        "freezing_rain": false,
+        "timing_window": "Ongoing 3 AM - 9 AM",
+        "condition_text": "Blowing Snow / Drifting"
+      },
+      "rwis_inputs": {
+        "pavement_temp_f": 18,
+        "surface_condition": "Snow Packed / Drifting",
+        "friction_coefficient_mu": 0.38
+      },
+      "scoring_breakdown": {
+        "weather_score": 68,
+        "corridor_rwis_hazard": 58,
+        "blended_final_score": 61.0,
+        "guards_applied": []
+      },
+      "outputs": {
+        "p_closed": 0.42,
+        "p_delay": 0.52,
+        "p_open": 0.06,
+        "category_label": "Delayed Start (2-Hr)",
+        "rationale": "Sub-4-inch snow accumulation coupled with high winds causing drifting in open fields; 2-hour delay allows plow cleanup."
+      }
+    },
+    {
+      "id": "VT-SND-005",
+      "district_info": {
+        "county": "Orleans",
+        "high_school": "North Country Union High School",
+        "zip_code": "05855",
+        "corridors": ["Veterans Memorial Drive", "US-5", "VT-105"],
+        "rwis_station": "VT-105 Newport RWIS"
+      },
+      "weather_inputs": {
+        "snowfall_inches": 1.0,
+        "temp_f": -12,
+        "wind_mph": 15,
+        "wind_chill_f": -34,
+        "ice_inches": 0.0,
+        "freezing_rain": false,
+        "timing_window": "Extreme Cold Morning",
+        "condition_text": "Extreme Cold / Wind Chill Warning"
+      },
+      "rwis_inputs": {
+        "pavement_temp_f": -8,
+        "surface_condition": "Dry / Frozen",
+        "friction_coefficient_mu": 0.71
+      },
+      "scoring_breakdown": {
+        "weather_score": 65,
+        "corridor_rwis_hazard": 15,
+        "blended_final_score": 30.0,
+        "guards_applied": []
+      },
+      "outputs": {
+        "p_closed": 0.58,
+        "p_delay": 0.32,
+        "p_open": 0.1,
+        "category_label": "Closed (Snow Day)",
+        "rationale": "Dangerous arctic wind chills (-34°F) trigger student bus-stop safety closures despite clear pavement conditions."
+      }
+    },
+    {
+      "id": "VT-SND-006",
+      "district_info": {
+        "county": "Lamoille",
+        "high_school": "Stowe High School",
+        "zip_code": "05672",
+        "corridors": ["Barrows Road", "Mountain Road (VT-108)", "VT-100"],
+        "rwis_station": "VT-108 Smugglers Notch / Stowe RWIS"
+      },
+      "weather_inputs": {
+        "snowfall_inches": 11.0,
+        "temp_f": 24,
+        "wind_mph": 10,
+        "wind_chill_f": 16,
+        "ice_inches": 0.0,
+        "freezing_rain": false,
+        "timing_window": "Peak 2 AM - 7 AM",
+        "condition_text": "Heavy Mountain Snow Band"
+      },
+      "rwis_inputs": {
+        "pavement_temp_f": 27,
+        "surface_condition": "Deep Snow Cover",
+        "friction_coefficient_mu": 0.22
+      },
+      "scoring_breakdown": {
+        "weather_score": 88,
+        "corridor_rwis_hazard": 82,
+        "blended_final_score": 83.8,
+        "guards_applied": ["Corridor Hazard >= 70 Floor Applied"]
+      },
+      "outputs": {
+        "p_closed": 0.88,
+        "p_delay": 0.1,
+        "p_open": 0.02,
+        "category_label": "Closed (Snow Day)",
+        "rationale": "Heavy elevation snow band exceeds 10 inches before 6 AM decision cutoff; mountain access corridors heavily impaired."
+      }
+    },
+    {
+      "id": "VT-SND-007",
+      "district_info": {
+        "county": "Windham",
+        "high_school": "Brattleboro Union High School",
+        "zip_code": "05301",
+        "corridors": ["Fairground Road", "South Main Street", "US-5"],
+        "rwis_station": "I-91 Exit 1 Brattleboro RWIS"
+      },
+      "weather_inputs": {
+        "snowfall_inches": 0.5,
+        "temp_f": 34,
+        "wind_mph": 5,
+        "wind_chill_f": 34,
+        "ice_inches": 0.0,
+        "freezing_rain": false,
+        "timing_window": "Overnight rain",
+        "condition_text": "Light Rain / Wet"
+      },
+      "rwis_inputs": {
+        "pavement_temp_f": 36,
+        "surface_condition": "Wet",
+        "friction_coefficient_mu": 0.78
+      },
+      "scoring_breakdown": {
+        "weather_score": 0,
+        "corridor_rwis_hazard": 5,
+        "blended_final_score": 3.5,
+        "guards_applied": ["Clear Corridor Capped <= 42%"]
+      },
+      "outputs": {
+        "p_closed": 0.0,
+        "p_delay": 0.01,
+        "p_open": 0.99,
+        "category_label": "Open (Normal)",
+        "rationale": "Temperatures remain safely above freezing with clear road surface conditions."
+      }
+    },
+    {
+      "id": "VT-SND-008",
+      "district_info": {
+        "county": "Bennington",
+        "high_school": "Mount Anthony Union High School",
+        "zip_code": "05201",
+        "corridors": ["Park Street Extension", "VT-279", "US-7"],
+        "rwis_station": "VT-279 Bennington Bypass RWIS"
+      },
+      "weather_inputs": {
+        "snowfall_inches": 5.5,
+        "temp_f": 26,
+        "wind_mph": 16,
+        "wind_chill_f": 16,
+        "ice_inches": 0.0,
+        "freezing_rain": false,
+        "timing_window": "4 AM - 8 AM snowfall",
+        "condition_text": "Moderate Snow"
+      },
+      "rwis_inputs": {
+        "pavement_temp_f": 28,
+        "surface_condition": "Slush / Snow Covered",
+        "friction_coefficient_mu": 0.42
+      },
+      "scoring_breakdown": {
+        "weather_score": 58,
+        "corridor_rwis_hazard": 52,
+        "blended_final_score": 53.8,
+        "guards_applied": []
+      },
+      "outputs": {
+        "p_closed": 0.35,
+        "p_delay": 0.58,
+        "p_open": 0.07,
+        "category_label": "Delayed Start (2-Hr)",
+        "rationale": "Moderate snow timing directly overlaps morning commute, but VTrans plows are actively maintaining principal arterial routes."
+      }
+    },
+    {
+      "id": "VT-SND-009",
+      "district_info": {
+        "county": "Addison",
+        "high_school": "Middlebury Union High School",
+        "zip_code": "05753",
+        "corridors": ["Charles Avenue", "US-7", "VT-125"],
+        "rwis_station": "US-7 Middlebury RWIS"
+      },
+      "weather_inputs": {
+        "snowfall_inches": 1.5,
+        "temp_f": 20,
+        "wind_mph": 14,
+        "wind_chill_f": 9,
+        "ice_inches": 0.1,
+        "freezing_rain": true,
+        "timing_window": "5 AM flash freeze",
+        "condition_text": "Freezing Drizzle / Sleet"
+      },
+      "rwis_inputs": {
+        "pavement_temp_f": 23,
+        "surface_condition": "Ice Coatings",
+        "friction_coefficient_mu": 0.25
+      },
+      "scoring_breakdown": {
+        "weather_score": 75,
+        "corridor_rwis_hazard": 78,
+        "blended_final_score": 77.1,
+        "guards_applied": ["Corridor Hazard >= 70 Floor Applied"]
+      },
+      "outputs": {
+        "p_closed": 0.79,
+        "p_delay": 0.18,
+        "p_open": 0.03,
+        "category_label": "Closed (Snow Day)",
+        "rationale": "Flash freeze event coating US-7 and rural feeder roads in ice right before bus dispatch."
+      }
+    },
+    {
+      "id": "VT-SND-010",
+      "district_info": {
+        "county": "Caledonia",
+        "high_school": "St. Johnsbury Academy",
+        "zip_code": "05819",
+        "corridors": ["Main Street", "US-5", "I-91 Exit 20"],
+        "rwis_station": "I-91 St. Johnsbury RWIS"
+      },
+      "weather_inputs": {
+        "snowfall_inches": 7.0,
+        "temp_f": 15,
+        "wind_mph": 10,
+        "wind_chill_f": 4,
+        "ice_inches": 0.0,
+        "freezing_rain": false,
+        "timing_window": "Overnight 10 PM - 5 AM",
+        "condition_text": "Snow Clearing"
+      },
+      "rwis_inputs": {
+        "pavement_temp_f": 21,
+        "surface_condition": "Plowed / Packed Snow",
+        "friction_coefficient_mu": 0.49
+      },
+      "scoring_breakdown": {
+        "weather_score": 52,
+        "corridor_rwis_hazard": 40,
+        "blended_final_score": 43.6,
+        "guards_applied": []
+      },
+      "outputs": {
+        "p_closed": 0.22,
+        "p_delay": 0.68,
+        "p_open": 0.1,
+        "category_label": "Delayed Start (2-Hr)",
+        "rationale": "Solid overnight accumulation finished before 5 AM; standard 2-hour delay gives road crews time to treat primary arteries."
+      }
+    },
+    {
+      "id": "VT-SND-011",
+      "district_info": {
+        "county": "Chittenden",
+        "high_school": "South Burlington High School",
+        "zip_code": "05403",
+        "corridors": ["Dorset Street", "Swift Street", "Williston Road (US-2)"],
+        "rwis_station": "US-2 Williston / South Burlington RWIS"
+      },
+      "weather_inputs": {
+        "snowfall_inches": 3.5,
+        "temp_f": 25,
+        "wind_mph": 12,
+        "wind_chill_f": 16,
+        "ice_inches": 0.0,
+        "freezing_rain": false,
+        "timing_window": "6 AM - 9 AM start",
+        "condition_text": "Light Snow Starting"
+      },
+      "rwis_inputs": {
+        "pavement_temp_f": 28,
+        "surface_condition": "Wet / Wet Snow",
+        "friction_coefficient_mu": 0.55
+      },
+      "scoring_breakdown": {
+        "weather_score": 38,
+        "corridor_rwis_hazard": 30,
+        "blended_final_score": 32.4,
+        "guards_applied": []
+      },
+      "outputs": {
+        "p_closed": 0.12,
+        "p_delay": 0.38,
+        "p_open": 0.5,
+        "category_label": "Open (Normal)",
+        "rationale": "Sub-threshold snow starting late in commute window; urban street grid heavily salted and passable."
+      }
+    },
+    {
+      "id": "VT-SND-012",
+      "district_info": {
+        "county": "Windsor",
+        "high_school": "Hartford High School",
+        "zip_code": "05001",
+        "corridors": ["Highland Avenue", "US-5", "I-91"],
+        "rwis_station": "I-91 / I-89 White River Junction RWIS"
+      },
+      "weather_inputs": {
+        "snowfall_inches": 12.5,
+        "temp_f": 19,
+        "wind_mph": 20,
+        "wind_chill_f": 6,
+        "ice_inches": 0.0,
+        "freezing_rain": false,
+        "timing_window": "Continuous Overnight",
+        "condition_text": "Noreaster / Heavy Snow"
+      },
+      "rwis_inputs": {
+        "pavement_temp_f": 22,
+        "surface_condition": "Heavy Snow Cover",
+        "friction_coefficient_mu": 0.19
+      },
+      "scoring_breakdown": {
+        "weather_score": 95,
+        "corridor_rwis_hazard": 90,
+        "blended_final_score": 91.5,
+        "guards_applied": ["Corridor Hazard >= 70 Floor Applied"]
+      },
+      "outputs": {
+        "p_closed": 0.96,
+        "p_delay": 0.03,
+        "p_open": 0.01,
+        "category_label": "Closed (Snow Day)",
+        "rationale": "Major winter storm exceeding 12 inches; interstate and regional feeder roads unpassable for school buses."
+      }
+    },
+    {
+      "id": "VT-SND-013",
+      "district_info": {
+        "county": "Essex",
+        "high_school": "Canaan Memorial High School",
+        "zip_code": "05903",
+        "corridors": ["School Street", "VT-102", "US-3"],
+        "rwis_station": "VT-102 Canaan RWIS"
+      },
+      "weather_inputs": {
+        "snowfall_inches": 6.0,
+        "temp_f": -5,
+        "wind_mph": 15,
+        "wind_chill_f": -22,
+        "ice_inches": 0.0,
+        "freezing_rain": false,
+        "timing_window": "Overnight into Morning",
+        "condition_text": "Cold / Flurries"
+      },
+      "rwis_inputs": {
+        "pavement_temp_f": -2,
+        "surface_condition": "Packed Snow / Ice",
+        "friction_coefficient_mu": 0.32
+      },
+      "scoring_breakdown": {
+        "weather_score": 72,
+        "corridor_rwis_hazard": 66,
+        "blended_final_score": 67.8,
+        "guards_applied": []
+      },
+      "outputs": {
+        "p_closed": 0.71,
+        "p_delay": 0.24,
+        "p_open": 0.05,
+        "category_label": "Closed (Snow Day)",
+        "rationale": "Remote Northeast Kingdom routes face a combination of 6-inch snow accumulation and extreme sub-zero cold rendering salt ineffective."
+      }
+    },
+    {
+      "id": "VT-SND-014",
+      "district_info": {
+        "county": "Chittenden",
+        "high_school": "Milton High School",
+        "zip_code": "05468",
+        "corridors": ["Rebecca Lander Drive", "US-7"],
+        "rwis_station": "US-7 Milton RWIS"
+      },
+      "weather_inputs": {
+        "snowfall_inches": 5.0,
+        "temp_f": 29,
+        "wind_mph": 10,
+        "wind_chill_f": 21,
+        "ice_inches": 0.0,
+        "freezing_rain": false,
+        "timing_window": "Ended at 2 AM",
+        "condition_text": "Cloudy"
+      },
+      "rwis_inputs": {
+        "pavement_temp_f": 30,
+        "surface_condition": "Partially Bare / Wet",
+        "friction_coefficient_mu": 0.58
+      },
+      "scoring_breakdown": {
+        "weather_score": 32,
+        "corridor_rwis_hazard": 28,
+        "blended_final_score": 29.2,
+        "guards_applied": []
+      },
+      "outputs": {
+        "p_closed": 0.15,
+        "p_delay": 0.45,
+        "p_open": 0.4,
+        "category_label": "Delayed Start (2-Hr)",
+        "rationale": "Early morning clearing allowed town and state plows to clear US-7 corridor before bus routes began."
+      }
+    },
+    {
+      "id": "VT-SND-015",
+      "district_info": {
+        "county": "Washington",
+        "high_school": "Spaulding High School",
+        "zip_code": "05641",
+        "corridors": ["Ayers Street", "South Main Street (US-302)"],
+        "rwis_station": "US-302 Barre RWIS"
+      },
+      "weather_inputs": {
+        "snowfall_inches": 9.0,
+        "temp_f": 17,
+        "wind_mph": 18,
+        "wind_chill_f": 3,
+        "ice_inches": 0.0,
+        "freezing_rain": false,
+        "timing_window": "3 AM - 7 AM intense band",
+        "condition_text": "Heavy Snow"
+      },
+      "rwis_inputs": {
+        "pavement_temp_f": 21,
+        "surface_condition": "Snow Covered",
+        "friction_coefficient_mu": 0.27
+      },
+      "scoring_breakdown": {
+        "weather_score": 82,
+        "corridor_rwis_hazard": 76,
+        "blended_final_score": 77.8,
+        "guards_applied": ["Corridor Hazard >= 70 Floor Applied"]
+      },
+      "outputs": {
+        "p_closed": 0.84,
+        "p_delay": 0.14,
+        "p_open": 0.02,
+        "category_label": "Closed (Snow Day)",
+        "rationale": "Barre region hit with 9 inches of heavy snow during active morning plow cycle."
+      }
+    },
+    {
+      "id": "VT-SND-016",
+      "district_info": {
+        "county": "Orange",
+        "high_school": "Randolph Union High School",
+        "zip_code": "05060",
+        "corridors": ["Forest Street", "VT-12"],
+        "rwis_station": "I-89 Exit 4 Randolph RWIS"
+      },
+      "weather_inputs": {
+        "snowfall_inches": 0.0,
+        "temp_f": 12,
+        "wind_mph": 8,
+        "wind_chill_f": 2,
+        "ice_inches": 0.35,
+        "freezing_rain": true,
+        "timing_window": "Overnight freezing rain",
+        "condition_text": "Ice Storm Warning"
+      },
+      "rwis_inputs": {
+        "pavement_temp_f": 20,
+        "surface_condition": "Solid Ice",
+        "friction_coefficient_mu": 0.12
+      },
+      "scoring_breakdown": {
+        "weather_score": 98,
+        "corridor_rwis_hazard": 95,
+        "blended_final_score": 95.9,
+        "guards_applied": ["Corridor Hazard >= 70 Floor Applied"]
+      },
+      "outputs": {
+        "p_closed": 0.98,
+        "p_delay": 0.02,
+        "p_open": 0.0,
+        "category_label": "Closed (Snow Day)",
+        "rationale": "Significant ice accumulation (0.35 in) creates unnavigable conditions on hilly VT-12 feeder routes."
+      }
+    },
+    {
+      "id": "VT-SND-017",
+      "district_info": {
+        "county": "Bennington",
+        "high_school": "Burr and Burton Academy",
+        "zip_code": "05254",
+        "corridors": ["Seminary Avenue", "Main Street (US-7A/VT-30)"],
+        "rwis_station": "US-7 Manchester RWIS"
+      },
+      "weather_inputs": {
+        "snowfall_inches": 4.0,
+        "temp_f": 27,
+        "wind_mph": 10,
+        "wind_chill_f": 19,
+        "ice_inches": 0.0,
+        "freezing_rain": false,
+        "timing_window": "4 AM - 6 AM transition to sleet",
+        "condition_text": "Sleet / Snow Mix"
+      },
+      "rwis_inputs": {
+        "pavement_temp_f": 29,
+        "surface_condition": "Slush / Wet",
+        "friction_coefficient_mu": 0.45
+      },
+      "scoring_breakdown": {
+        "weather_score": 52,
+        "corridor_rwis_hazard": 48,
+        "blended_final_score": 49.2,
+        "guards_applied": []
+      },
+      "outputs": {
+        "p_closed": 0.28,
+        "p_delay": 0.62,
+        "p_open": 0.1,
+        "category_label": "Delayed Start (2-Hr)",
+        "rationale": "Mixed precipitation creates slush on US-7A; 2-hour delay allows salt treatments to take effect as temps rise."
+      }
+    },
+    {
+      "id": "VT-SND-018",
+      "district_info": {
+        "county": "Lamoille",
+        "high_school": "Lamoille Union High School",
+        "zip_code": "05655",
+        "corridors": ["VT-15", "Route 100C"],
+        "rwis_station": "VT-15 Hyde Park RWIS"
+      },
+      "weather_inputs": {
+        "snowfall_inches": 7.5,
+        "temp_f": 16,
+        "wind_mph": 14,
+        "wind_chill_f": 4,
+        "ice_inches": 0.0,
+        "freezing_rain": false,
+        "timing_window": "Ongoing morning snow",
+        "condition_text": "Snow"
+      },
+      "rwis_inputs": {
+        "pavement_temp_f": 20,
+        "surface_condition": "Snow Covered",
+        "friction_coefficient_mu": 0.31
+      },
+      "scoring_breakdown": {
+        "weather_score": 76,
+        "corridor_rwis_hazard": 71,
+        "blended_final_score": 72.5,
+        "guards_applied": ["Corridor Hazard >= 70 Floor Applied"]
+      },
+      "outputs": {
+        "p_closed": 0.77,
+        "p_delay": 0.2,
+        "p_open": 0.03,
+        "category_label": "Closed (Snow Day)",
+        "rationale": "Lamoille Valley snow band delivering consistent 1 in/hr rates through key 5-7 AM bus window."
+      }
+    },
+    {
+      "id": "VT-SND-019",
+      "district_info": {
+        "county": "Grand Isle",
+        "high_school": "Missisquoi Valley Union High School",
+        "zip_code": "05488",
+        "corridors": ["Grand Avenue", "US-7", "I-89 Exit 21"],
+        "rwis_station": "US-7 Swanton RWIS"
+      },
+      "weather_inputs": {
+        "snowfall_inches": 3.0,
+        "temp_f": 22,
+        "wind_mph": 32,
+        "wind_chill_f": 6,
+        "ice_inches": 0.0,
+        "freezing_rain": false,
+        "timing_window": "High wind morning",
+        "condition_text": "Blowing Snow / Lake Wind"
+      },
+      "rwis_inputs": {
+        "pavement_temp_f": 25,
+        "surface_condition": "Drifting / Ice Patches",
+        "friction_coefficient_mu": 0.36
+      },
+      "scoring_breakdown": {
+        "weather_score": 64,
+        "corridor_rwis_hazard": 62,
+        "blended_final_score": 62.6,
+        "guards_applied": []
+      },
+      "outputs": {
+        "p_closed": 0.52,
+        "p_delay": 0.42,
+        "p_open": 0.06,
+        "category_label": "Closed (Snow Day)",
+        "rationale": "Lake Champlain wind gusts over 30 mph causing severe ground drifting across exposed US-7 corridors."
+      }
+    },
+    {
+      "id": "VT-SND-020",
+      "district_info": {
+        "county": "Rutland",
+        "high_school": "Fair Haven Union High School",
+        "zip_code": "05743",
+        "corridors": ["Mechanics Street", "US-4 Exit 2/3", "Main Street"],
+        "rwis_station": "US-4 Fair Haven RWIS"
+      },
+      "weather_inputs": {
+        "snowfall_inches": 1.0,
+        "temp_f": 31,
+        "wind_mph": 6,
+        "wind_chill_f": 26,
+        "ice_inches": 0.0,
+        "freezing_rain": false,
+        "timing_window": "Overnight flurries",
+        "condition_text": "Cloudy"
+      },
+      "rwis_inputs": {
+        "pavement_temp_f": 33,
+        "surface_condition": "Wet",
+        "friction_coefficient_mu": 0.72
+      },
+      "scoring_breakdown": {
+        "weather_score": 10,
+        "corridor_rwis_hazard": 12,
+        "blended_final_score": 11.4,
+        "guards_applied": ["Clear Corridor Capped <= 42%"]
+      },
+      "outputs": {
+        "p_closed": 0.02,
+        "p_delay": 0.08,
+        "p_open": 0.9,
+        "category_label": "Open (Normal)",
+        "rationale": "Pavement temperatures above freezing keep US-4 double-lane corridor wet and completely clear."
+      }
+    }
+  ]
+}

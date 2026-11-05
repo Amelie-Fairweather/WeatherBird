@@ -20,14 +20,29 @@ export interface StudentRoutesInfo {
   }>;
 }
 
+export interface ScoreLine {
+  label: string;
+  detail: string;
+}
+
+export interface UserScoreBreakdown {
+  call: string;
+  why: string;
+  lines: ScoreLine[];
+}
+
 export interface DayPrediction {
   predicted_for_date: string;
   probabilities: {
     full_closing: number;
     delay: number;
     early_dismissal: number;
+    p_closed?: number;
+    p_delay?: number;
+    p_open?: number;
   };
   categories: {
+    decision?: string;
     full_closing: string;
     delay: string;
     early_dismissal: string;
@@ -41,6 +56,14 @@ export interface DayPrediction {
   };
   factors: string[];
   primary_reason?: string;
+  training_rationale?: string;
+  user_breakdown?: UserScoreBreakdown;
+  scoring_breakdown?: {
+    weather_score: number;
+    corridor_rwis_hazard: number;
+    blended_final_score: number;
+    guards_applied: string[];
+  };
   studentRoutes?: StudentRoutesInfo;
 }
 
@@ -54,6 +77,7 @@ export interface SnowDayPredictionResponse {
   forecast?: DayPrediction["forecast"];
   factors?: string[];
   primary_reason?: string;
+  user_breakdown?: UserScoreBreakdown;
   studentRoutes?: StudentRoutesInfo;
   thresholds?: {
     full_closing_snowfall: number;
@@ -75,6 +99,46 @@ export function getProbabilityBg(probability: number): string {
   if (probability >= 55) return "bg-orange-100";
   if (probability > 0) return "bg-yellow-100";
   return "bg-green-100";
+}
+
+export function DecisionBreakdown({
+  breakdown,
+  fallbackCall,
+  fallbackWhy,
+}: {
+  breakdown?: UserScoreBreakdown;
+  fallbackCall?: string;
+  fallbackWhy?: string;
+}) {
+  const call = breakdown?.call || fallbackCall;
+  const why = breakdown?.why || fallbackWhy;
+  if (!call && !why && !breakdown?.lines?.length) return null;
+
+  return (
+    <div className="mb-6 rounded-lg border border-[var(--darkBlue)]/20 bg-[var(--offWhite)] px-5 py-4">
+      {call && (
+        <>
+          <div className="text-sm font-cormorant text-gray-600">Call</div>
+          <div className="text-2xl font-bold font-cormorant text-[var(--darkBlue)] mb-2">
+            {call}
+          </div>
+        </>
+      )}
+      {why && (
+        <p className="text-base font-cormorant text-gray-800 leading-relaxed mb-4">{why}</p>
+      )}
+      {breakdown?.lines && breakdown.lines.length > 0 && (
+        <dl className="space-y-2">
+          {breakdown.lines.map((line) => (
+            <div key={line.label} className="grid grid-cols-[7.5rem_1fr] gap-3 text-base">
+              <dt className="font-semibold font-cormorant text-[var(--darkBlue)]">{line.label}</dt>
+              <dd className="font-cormorant text-gray-800 leading-snug">{line.detail}</dd>
+            </div>
+          ))}
+        </dl>
+      )}
+    </div>
+  );
 }
 
 export function StudentRoutesPanel({ routes }: { routes: StudentRoutesInfo }) {
@@ -168,6 +232,11 @@ export default function SnowDayPredictionResults({
                   }
                 )}
               </h3>
+              <DecisionBreakdown
+                breakdown={prediction.predictions[0].user_breakdown}
+                fallbackCall={prediction.predictions[0].categories.decision}
+                fallbackWhy={prediction.predictions[0].primary_reason}
+              />
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
                 <div
                   className={`${getProbabilityBg(prediction.predictions[0].probabilities.full_closing)} rounded-lg p-5`}
@@ -177,9 +246,6 @@ export default function SnowDayPredictionResults({
                     className={`text-4xl font-bold font-cormorant ${getProbabilityColor(prediction.predictions[0].probabilities.full_closing)}`}
                   >
                     {prediction.predictions[0].probabilities.full_closing}%
-                  </div>
-                  <div className="text-base font-cormorant text-gray-600 mt-2">
-                    {prediction.predictions[0].categories.full_closing}
                   </div>
                 </div>
                 <div
@@ -191,9 +257,6 @@ export default function SnowDayPredictionResults({
                   >
                     {prediction.predictions[0].probabilities.delay}%
                   </div>
-                  <div className="text-base font-cormorant text-gray-600 mt-2">
-                    {prediction.predictions[0].categories.delay}
-                  </div>
                 </div>
                 <div
                   className={`${getProbabilityBg(prediction.predictions[0].probabilities.early_dismissal)} rounded-lg p-5`}
@@ -203,9 +266,6 @@ export default function SnowDayPredictionResults({
                     className={`text-4xl font-bold font-cormorant ${getProbabilityColor(prediction.predictions[0].probabilities.early_dismissal)}`}
                   >
                     {prediction.predictions[0].probabilities.early_dismissal}%
-                  </div>
-                  <div className="text-base font-cormorant text-gray-600 mt-2">
-                    {prediction.predictions[0].categories.early_dismissal}
                   </div>
                 </div>
               </div>
@@ -242,12 +302,6 @@ export default function SnowDayPredictionResults({
               </div>
               {prediction.predictions[0].studentRoutes && (
                 <StudentRoutesPanel routes={prediction.predictions[0].studentRoutes} />
-              )}
-              {prediction.predictions[0].primary_reason && (
-                <p className="text-base font-cormorant text-gray-800 mb-3 leading-relaxed">
-                  <span className="font-semibold">Why it matters: </span>
-                  {prediction.predictions[0].primary_reason}
-                </p>
               )}
               {showFactors && prediction.predictions[0].factors?.length > 0 && (
                 <div className="mb-4">
@@ -317,6 +371,16 @@ export default function SnowDayPredictionResults({
                         </div>
                       </div>
                     </div>
+                    {(dayPred.user_breakdown?.call || dayPred.categories.decision) && (
+                      <div className="text-base font-cormorant text-[var(--darkBlue)] font-semibold mb-1">
+                        {dayPred.user_breakdown?.call || dayPred.categories.decision}
+                      </div>
+                    )}
+                    {dayPred.user_breakdown?.why && (
+                      <p className="text-base font-cormorant text-gray-800 mb-2 leading-snug">
+                        {dayPred.user_breakdown.why}
+                      </p>
+                    )}
                     <div className="text-base font-cormorant text-gray-600">
                       {dayPred.forecast.temperature_f}°F • {dayPred.forecast.snowfall_inches}&quot;
                       snow • {dayPred.forecast.condition}
@@ -341,6 +405,11 @@ export default function SnowDayPredictionResults({
           </p>
           {prediction.probabilities && (
             <>
+              <DecisionBreakdown
+                breakdown={prediction.user_breakdown}
+                fallbackCall={prediction.categories?.decision}
+                fallbackWhy={prediction.primary_reason}
+              />
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
                 <div
                   className={`${getProbabilityBg(prediction.probabilities.full_closing)} rounded-lg p-5`}
@@ -351,9 +420,6 @@ export default function SnowDayPredictionResults({
                   >
                     {prediction.probabilities.full_closing}%
                   </div>
-                  <div className="text-base font-cormorant text-gray-600 mt-2">
-                    {prediction.categories?.full_closing}
-                  </div>
                 </div>
                 <div className={`${getProbabilityBg(prediction.probabilities.delay)} rounded-lg p-5`}>
                   <div className="text-base font-cormorant text-gray-600 mb-1">Delay</div>
@@ -361,9 +427,6 @@ export default function SnowDayPredictionResults({
                     className={`text-4xl font-bold font-cormorant ${getProbabilityColor(prediction.probabilities.delay)}`}
                   >
                     {prediction.probabilities.delay}%
-                  </div>
-                  <div className="text-base font-cormorant text-gray-600 mt-2">
-                    {prediction.categories?.delay}
                   </div>
                 </div>
                 <div
@@ -374,9 +437,6 @@ export default function SnowDayPredictionResults({
                     className={`text-4xl font-bold font-cormorant ${getProbabilityColor(prediction.probabilities.early_dismissal)}`}
                   >
                     {prediction.probabilities.early_dismissal}%
-                  </div>
-                  <div className="text-base font-cormorant text-gray-600 mt-2">
-                    {prediction.categories?.early_dismissal}
                   </div>
                 </div>
               </div>

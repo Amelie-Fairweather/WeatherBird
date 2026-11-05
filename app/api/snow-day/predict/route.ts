@@ -27,14 +27,20 @@ function serializeStudentRoutes(pred: SnowDayPrediction) {
 }
 
 function serializePrediction(pred: SnowDayPrediction) {
+  const decisionCategory =
+    pred.decision_category || getProbabilityCategory(pred.full_closing_probability);
   return {
     predicted_for_date: pred.predicted_for_date,
     probabilities: {
       full_closing: pred.full_closing_probability,
       delay: pred.delay_probability,
       early_dismissal: pred.early_dismissal_probability,
+      p_closed: pred.p_closed,
+      p_delay: pred.p_delay,
+      p_open: pred.p_open,
     },
     categories: {
+      decision: decisionCategory,
       full_closing: getProbabilityCategory(pred.full_closing_probability),
       delay: getProbabilityCategory(pred.delay_probability),
       early_dismissal: getProbabilityCategory(pred.early_dismissal_probability),
@@ -47,8 +53,11 @@ function serializePrediction(pred: SnowDayPrediction) {
       condition: pred.forecast.condition,
     },
     factors: pred.factors,
-    primary_reason: pred.primary_reason,
+    primary_reason: pred.primary_reason || pred.training_rationale,
     closure_reasons: pred.closure_reasons,
+    training_rationale: pred.training_rationale,
+    scoring_breakdown: pred.scoring_breakdown,
+    user_breakdown: pred.user_breakdown,
     studentRoutes: serializeStudentRoutes(pred),
   };
 }

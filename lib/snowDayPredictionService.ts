@@ -34,6 +34,13 @@ import {
   formatAnnounceByHour,
   type SuperintendentInput,
 } from './superintendentInput';
+import {
+  VT_SNOW_DAY_BASELINES,
+  applyLiveTrainingCalibration,
+  getCalibratedProbabilityCategory,
+  type CalibrationFeatures,
+  type UserScoreBreakdown,
+} from './training/snowDayCalibration';
 
 export type { SuperintendentInput } from './superintendentInput';
 
@@ -89,6 +96,21 @@ export interface SnowDayPrediction {
   localSensorBriefing?: string;
   /** High-school student/bus corridor assessment from VTrans pavement data */
   studentRoutes?: StudentRouteAssessment;
+
+  /** Training-calibrated multinomial decision (VT-SND labeled cases) */
+  decision_category?: string;
+  p_closed?: number;
+  p_delay?: number;
+  p_open?: number;
+  training_rationale?: string;
+  scoring_breakdown?: {
+    weather_score: number;
+    corridor_rwis_hazard: number;
+    blended_final_score: number;
+    guards_applied: string[];
+  };
+  /** Number-specific call card for the UI */
+  user_breakdown?: UserScoreBreakdown;
 }
 
 export interface MultiDaySnowDayPredictions {
@@ -558,8 +580,10 @@ export async function predictSnowDay(
   console.log(`[Snow Day Scoring] ${targetDateStr}: ${snowfall.toFixed(1)}" snow, ${temperatureF.toFixed(0)}°F, ${windSpeedMph.toFixed(0)}mph, ${forecast.condition}`);
 
   // Factor 1: Snowfall amount (GRANULAR - every inch matters, even small amounts)
-  const fullClosingThreshold = thresholds.full_closing_snowfall_threshold || 8;
-  const delayThreshold = thresholds.delay_snowfall_threshold || 4;
+  const fullClosingThreshold =
+    thresholds.full_closing_snowfall_threshold || VT_SNOW_DAY_BASELINES.fullClosingSnowfallInches;
+  const delayThreshold =
+    thresholds.delay_snowfall_threshold || VT_SNOW_DAY_BASELINES.delaySnowfallInches;
   
   if (snowfall >= fullClosingThreshold) {
     const excess = snowfall - fullClosingThreshold;
@@ -626,8 +650,19 @@ export async function predictSnowDay(
   }
   
   // Very cold wind chills: Schools may close if students waiting for buses are at risk
-  const windChill = temperatureF - (windSpeedMph * 0.7);
-  if (windChill <= -10) {
+  // (VT-SND-005): arctic wind chill closes even when pavement is clear — bus-stop safety
+  const windChill = estimateWindChillF(temperatureF, windSpeedMph);
+  if (windChill <= VT_SNOW_DAY_BASELINES.busStopWindChillF) {
+    fullClosingScore += 45;
+    delayScore += 25;
+    factors.push(
+      `ARCTIC wind chill (${windChill.toFixed(0)}°F) — bus-stop safety close even if pavement clear (training VT-SND-005)`
+    );
+  } else if (windChill <= VT_SNOW_DAY_BASELINES.severeWindChillF) {
+    fullClosingScore += 28;
+    delayScore += 18;
+    factors.push(`Severe wind chill (${windChill.toFixed(0)}°F) - bus safety and frostbite risk`);
+  } else if (windChill <= -10) {
     fullClosingScore += 20;
     delayScore += 15;
     factors.push(`Very cold wind chill (${windChill.toFixed(0)}°F) - bus safety and frostbite risk`);
@@ -1098,18 +1133,26 @@ export async function predictSnowDay(
       studentRouteAssessment.routeHazardScore <= 25
     ) {
       // Clear VTrans corridors: forecast snow alone shouldn't force a full close
+      // EXCEPT arctic bus-stop wind chill (VT-SND-005) and extreme ice/snow
       const extremeIce =
         !!(forecast.ice && forecast.ice >= (thresholds.ice_threshold || 0.05)) ||
         conditionLower.includes('freezing rain');
-      const extremeSnow = snowfall >= (thresholds.full_closing_snowfall_threshold || 8);
-      if (!extremeIce && !extremeSnow) {
-        fullClosingScore = Math.min(fullClosingScore, 42);
+      const extremeSnow =
+        snowfall >=
+        (thresholds.full_closing_snowfall_threshold ||
+          VT_SNOW_DAY_BASELINES.fullClosingSnowfallInches);
+      const extremeCold =
+        windChill <= VT_SNOW_DAY_BASELINES.busStopWindChillF || temperatureF <= -10;
+      if (!extremeIce && !extremeSnow && !extremeCold) {
+        fullClosingScore = Math.min(fullClosingScore, VT_SNOW_DAY_BASELINES.clearCorridorCap);
         factors.push(
-          `VTrans-weighted decision (70%): corridors mostly clear (hazard ${studentRouteAssessment.routeHazardScore}/100) — caps full-close unless extreme ice/snow forecast`
+          `VTrans-weighted decision (70%): corridors mostly clear (hazard ${studentRouteAssessment.routeHazardScore}/100) — caps full-close unless extreme ice/snow/cold`
         );
       } else {
         factors.push(
-          `VTrans corridors look passable, but extreme sky/ice forecast still elevates close risk (blend 70/30)`
+          extremeCold
+            ? `VTrans corridors look passable, but arctic wind chill overrides clear-corridor cap (bus-stop safety)`
+            : `VTrans corridors look passable, but extreme sky/ice forecast still elevates close risk (blend 70/30)`
         );
       }
     } else {
@@ -1123,9 +1166,98 @@ export async function predictSnowDay(
     );
   }
 
-  // Cap scores at 100
+  // Cap scores at 100 before training calibration
   fullClosingScore = Math.min(fullClosingScore, 100);
   delayScore = Math.min(delayScore, 100);
+
+  // ——— TRAINING CALIBRATION (VT-SND-001..020) ———
+  // Re-map weather + VTrans blend into multinomial close/delay/open with
+  // labeled Vermont decision rules (ice, overnight→delay, lake wind, arctic cold).
+  const worstCorridor = studentRouteAssessment?.corridorSensors?.[0];
+  const calibrationFeatures: CalibrationFeatures = {
+    snowfallInches: snowfall,
+    tempF: temperatureF,
+    windMph: windSpeedMph,
+    windChillF: windChill,
+    iceInches: forecast.ice || 0,
+    freezingRain:
+      conditionLower.includes('freezing rain') ||
+      conditionLower.includes('freezing drizzle') ||
+      conditionLower.includes('ice storm'),
+    timingWindow: inferTimingWindowLabel(
+      forecast.condition,
+      superintendent?.morningNotes,
+      superintendent?.plowStatus,
+      targetDate
+    ),
+    conditionText: forecast.condition || '',
+    pavementTempF:
+      worstCorridor?.pavementTemperature ??
+      studentRouteAssessment?.corridorSensors?.find((s) => s.pavementTemperature != null)
+        ?.pavementTemperature ??
+      temperatureF,
+    surfaceCondition: worstCorridor?.condition || 'unknown',
+    frictionMu:
+      worstCorridor?.surfaceFriction ??
+      studentRouteAssessment?.corridorSensors?.find((s) => s.surfaceFriction != null)
+        ?.surfaceFriction ??
+      0.65,
+    county: district.county || undefined,
+    urbanHint: superintendent?.terrain === 'urban',
+  };
+
+  const liveWeatherScore = Math.round(
+    hasVTransCorridors && studentRouteAssessment
+      ? Math.max(
+          0,
+          fullClosingScore // already blended; recover approximate pre-label weather via inverse not needed —
+        )
+      : fullClosingScore
+  );
+
+  // Prefer pre-blend weather when we still have route hazard; else use current close score
+  const weatherForCalib = hasVTransCorridors
+    ? Math.round(
+        clampScore(
+          // Reconstruct approximate weather contribution from additive path:
+          // after blend fullClosing ≈ 0.7*hazard + 0.3*weather  → weather ≈ (full - 0.7*h)/0.3
+          studentRouteAssessment
+            ? (fullClosingScore -
+                studentRouteAssessment.routeHazardScore * VT_SNOW_DAY_BASELINES.vtransWeight) /
+                VT_SNOW_DAY_BASELINES.weatherWeight
+            : fullClosingScore
+        )
+      )
+    : liveWeatherScore;
+
+  const calibrated = applyLiveTrainingCalibration({
+    weatherScore: clampScore(weatherForCalib),
+    corridorHazard: studentRouteAssessment?.routeHazardScore ?? 0,
+    features: calibrationFeatures,
+    passable: studentRouteAssessment?.passable,
+  });
+
+  // When VTrans corridors exist, trust calibrated multinomial; otherwise keep additive scores
+  // but still apply arctic / ice overrides from training.
+  if (hasVTransCorridors || calibrated.categoryLabel === 'Closed (Snow Day)') {
+    fullClosingScore = calibrated.fullClosingProbability;
+    delayScore = Math.max(delayScore, calibrated.delayProbability);
+    // If training says delay preferred, keep close lower than delay
+    if (calibrated.categoryLabel === 'Delayed Start (2-Hr)') {
+      fullClosingScore = calibrated.fullClosingProbability;
+      delayScore = calibrated.delayProbability;
+    }
+    if (calibrated.categoryLabel === 'Open (Normal)') {
+      fullClosingScore = calibrated.fullClosingProbability;
+      delayScore = calibrated.delayProbability;
+    }
+    factors.push(...calibrated.factors.slice(0, 6));
+  } else {
+    factors.push('Training calibration available — applied overrides only (no corridor RWIS)');
+    if (windChill <= VT_SNOW_DAY_BASELINES.busStopWindChillF) {
+      fullClosingScore = Math.max(fullClosingScore, calibrated.fullClosingProbability);
+    }
+  }
 
   // Early dismissal is less common, use lower scores
   earlyDismissalScore = Math.min(fullClosingScore * 0.6, 70);
@@ -1196,15 +1328,22 @@ export async function predictSnowDay(
     }
     
     // SNOWFALL (county-specific thresholds)
-    if (snowfall >= (thresholds.full_closing_snowfall_threshold || 8)) {
+    if (
+      snowfall >=
+      (thresholds.full_closing_snowfall_threshold ||
+        VT_SNOW_DAY_BASELINES.fullClosingSnowfallInches)
+    ) {
       closureReasons.push(`Heavy snowfall (${snowfall.toFixed(1)}") - exceeds district threshold`);
     } else if (snowfall >= 6 && hoursUntilTarget <= 18) {
       closureReasons.push(`6"+ predicted by morning - often triggers night-before closure announcement`);
     }
     
-    // TEMPERATURE & WIND CHILL
-    const windChill = temperatureF - (windSpeedMph * 0.7);
-    if (windChill <= -10) {
+    // TEMPERATURE & WIND CHILL (reuse estimateWindChillF from scoring)
+    if (windChill <= VT_SNOW_DAY_BASELINES.busStopWindChillF) {
+      closureReasons.push(
+        `Arctic wind chill (${windChill.toFixed(0)}°F) - bus-stop safety close (training VT-SND-005)`
+      );
+    } else if (windChill <= -10) {
       closureReasons.push(`Very cold wind chill (${windChill.toFixed(0)}°F) - bus safety and frostbite risk`);
     } else if (temperatureF < (thresholds.temperature_threshold || 10)) {
       closureReasons.push(`Extreme cold (${temperatureF.toFixed(0)}°F)`);
@@ -1238,7 +1377,13 @@ export async function predictSnowDay(
       : 'Multiple factors combined';
   } else if (delayScore >= 50) {
     // Identify reasons for delay
-    if (snowfall >= (thresholds.delay_snowfall_threshold || 4) && snowfall < (thresholds.full_closing_snowfall_threshold || 8)) {
+    if (
+      snowfall >=
+        (thresholds.delay_snowfall_threshold || VT_SNOW_DAY_BASELINES.delaySnowfallInches) &&
+      snowfall <
+        (thresholds.full_closing_snowfall_threshold ||
+          VT_SNOW_DAY_BASELINES.fullClosingSnowfallInches)
+    ) {
       closureReasons.push(`Moderate snowfall (${snowfall.toFixed(1)}") - may delay rather than close`);
     }
     if (isMorningCommuteWindow) {
@@ -1255,6 +1400,14 @@ export async function predictSnowDay(
       : 'Moderate weather conditions';
   }
 
+  // Prefer training-calibrated rationale when it is more specific
+  if (calibrated.rationale) {
+    primaryReason = calibrated.rationale;
+    if (!closureReasons.includes(calibrated.rationale)) {
+      closureReasons.unshift(calibrated.rationale);
+    }
+  }
+
   return {
     district_id: district?.id || 0,
     district_name: district?.district_name || String(districtIdentifier),
@@ -1266,8 +1419,8 @@ export async function predictSnowDay(
     confidence: Math.min(100, Math.round(confidence)),
     forecast,
     factors,
-    primary_reason: primaryReason, // NEW: Clear explanation of WHY schools would close
-    closure_reasons: closureReasons, // NEW: Array of specific reasons
+    primary_reason: primaryReason,
+    closure_reasons: closureReasons,
     thresholds,
     locationContext: {
       zip: resolvedZip?.zip || zipFromInput || undefined,
@@ -1281,7 +1434,72 @@ export async function predictSnowDay(
     nearbySensors: roadConditions.slice(0, 12),
     localSensorBriefing: localSensorBriefing || undefined,
     studentRoutes: studentRouteAssessment || undefined,
+    decision_category: calibrated.categoryLabel,
+    p_closed: calibrated.pClosed,
+    p_delay: calibrated.pDelay,
+    p_open: calibrated.pOpen,
+    training_rationale: calibrated.rationale,
+    scoring_breakdown: {
+      weather_score: calibrated.weatherScore,
+      corridor_rwis_hazard: calibrated.corridorRwisHazard,
+      blended_final_score: calibrated.blendedFinalScore,
+      guards_applied: calibrated.guardsApplied,
+    },
+    user_breakdown: calibrated.userBreakdown,
   };
+}
+
+/** NWS-style wind chill (°F); returns air temp when wind chill does not apply. */
+function estimateWindChillF(tempF: number, windMph: number): number {
+  if (tempF > 50 || windMph <= 3) return tempF;
+  const v = Math.pow(windMph, 0.16);
+  return 35.74 + 0.6215 * tempF - 35.75 * v + 0.4275 * tempF * v;
+}
+
+function clampScore(n: number, lo = 0, hi = 100): number {
+  if (!Number.isFinite(n)) return lo;
+  return Math.max(lo, Math.min(hi, n));
+}
+
+/**
+ * Build a timing-window label for training calibration from forecast + superintendent notes.
+ */
+function inferTimingWindowLabel(
+  condition: string,
+  morningNotes: string | undefined,
+  plowStatus: SuperintendentInput['plowStatus'] | undefined,
+  targetDate: Date
+): string {
+  const blob = `${condition} ${morningNotes || ''}`.toLowerCase();
+  const hour = targetDate.getHours();
+
+  if (blob.includes('extreme cold') || blob.includes('wind chill')) {
+    return 'Extreme Cold Morning';
+  }
+  if (blob.includes('freezing rain') || blob.includes('ice storm')) {
+    return hour >= 4 && hour <= 7 ? '5 AM flash freeze' : 'Overnight freezing rain';
+  }
+  if (
+    plowStatus === 'clear' ||
+    blob.includes('ended') ||
+    blob.includes('clearing') ||
+    blob.includes('ending by')
+  ) {
+    return 'Ended at 2 AM';
+  }
+  if (blob.includes('blowing') || blob.includes('drifting') || blob.includes('lake')) {
+    return 'High wind morning';
+  }
+  if (hour >= 6 && hour <= 9 && blob.includes('start')) {
+    return '6 AM - 9 AM start';
+  }
+  if (hour >= 4 && hour <= 7) {
+    return blob.includes('heavy') ? '4 AM - 6 AM heavy band' : 'Ongoing morning snow';
+  }
+  if (hour < 4) {
+    return 'Overnight into Morning';
+  }
+  return condition || 'other';
 }
 
 /**
@@ -1608,13 +1826,10 @@ function getCountySpecificAdjustments(
 
 /**
  * Get probability category description
+ * Aligned to VT-SND training labels: Closed / Delayed Start / Open
  */
 export function getProbabilityCategory(probability: number): string {
-  if (probability >= 87) return 'No School or Possible Early Dismissal';
-  if (probability >= 75) return 'Possibility of No School';
-  if (probability >= 55) return 'Delay Likely';
-  if (probability > 0) return 'Little to no chance, but possible';
-  return 'No chance due to low precipitation chance';
+  return getCalibratedProbabilityCategory(probability);
 }
 
 /**

@@ -1,0 +1,21 @@
+case_id,snowfall_in,temp_f,wind_mph,wind_chill_f,ice_in,freezing_rain,mu_friction,pavement_temp_f,is_commute_window,overnight_ended_early,late_start,target_closed,pred_category,actual_category,category_match,p_closed_pred,p_closed_actual,p_closed_err
+VT-SND-001,8.5,18,22,4,0,0,0.28,26,1,0,0,1,"Closed (Snow Day)","Closed (Snow Day)",1,0.81,0.78,0.03
+VT-SND-002,2,22,12,12,0.2,1,0.18,29,1,0,0,1,"Closed (Snow Day)","Closed (Snow Day)",1,0.91,0.91,0
+VT-SND-003,3,28,8,22,0,0,0.62,31,0,1,0,0,"Open (Normal)","Open (Normal)",1,0.1,0.1,0
+VT-SND-004,4.5,14,28,-2,0,0,0.38,18,1,0,0,0,"Delayed Start (2-Hr)","Delayed Start (2-Hr)",1,0.42,0.42,0
+VT-SND-005,1,-12,15,-34,0,0,0.71,-8,0,0,0,1,"Closed (Snow Day)","Closed (Snow Day)",1,0.58,0.58,0
+VT-SND-006,11,24,10,16,0,0,0.22,27,1,0,0,1,"Closed (Snow Day)","Closed (Snow Day)",1,0.92,0.88,0.04
+VT-SND-007,0.5,34,5,34,0,0,0.78,36,0,0,0,0,"Open (Normal)","Open (Normal)",1,0.02,0,0.02
+VT-SND-008,5.5,26,16,16,0,0,0.42,28,1,0,0,0,"Delayed Start (2-Hr)","Delayed Start (2-Hr)",1,0.35,0.35,0
+VT-SND-009,1.5,20,14,9,0.1,1,0.25,23,1,0,0,1,"Closed (Snow Day)","Closed (Snow Day)",1,0.79,0.79,0
+VT-SND-010,7,15,10,4,0,0,0.49,21,0,1,0,0,"Delayed Start (2-Hr)","Delayed Start (2-Hr)",1,0.22,0.22,0
+VT-SND-011,3.5,25,12,16,0,0,0.55,28,0,0,1,0,"Open (Normal)","Open (Normal)",1,0.12,0.12,0
+VT-SND-012,12.5,19,20,6,0,0,0.19,22,1,0,0,1,"Closed (Snow Day)","Closed (Snow Day)",1,0.9,0.96,0.06
+VT-SND-013,6,-5,15,-22,0,0,0.32,-2,0,1,0,1,"Closed (Snow Day)","Closed (Snow Day)",1,0.75,0.71,0.04
+VT-SND-014,5,29,10,21,0,0,0.58,30,0,1,0,0,"Delayed Start (2-Hr)","Delayed Start (2-Hr)",1,0.15,0.15,0
+VT-SND-015,9,17,18,3,0,0,0.27,21,1,0,0,1,"Closed (Snow Day)","Closed (Snow Day)",1,0.8,0.84,0.04
+VT-SND-016,0,12,8,2,0.35,1,0.12,20,0,0,0,1,"Closed (Snow Day)","Closed (Snow Day)",1,0.98,0.98,0
+VT-SND-017,4,27,10,19,0,0,0.45,29,1,0,0,0,"Delayed Start (2-Hr)","Delayed Start (2-Hr)",1,0.23,0.28,0.05
+VT-SND-018,7.5,16,14,4,0,0,0.31,20,1,0,0,1,"Closed (Snow Day)","Closed (Snow Day)",1,0.75,0.77,0.02
+VT-SND-019,3,22,32,6,0,0,0.36,25,0,0,0,1,"Closed (Snow Day)","Closed (Snow Day)",1,0.75,0.52,0.23
+VT-SND-020,1,31,6,26,0,0,0.72,33,0,1,0,0,"Open (Normal)","Open (Normal)",1,0.1,0.02,0.08
