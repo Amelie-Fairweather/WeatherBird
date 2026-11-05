@@ -376,6 +376,35 @@ export function multinomialFromBlend(
   const factors: string[] = [];
   const condition = features.conditionText.toLowerCase();
   const mu = features.frictionMu;
+  const surface = features.surfaceCondition.toLowerCase();
+
+  // Above freezing, no snow, no ice, corridors not hazardous: likelihood is 0.
+  // Do not convert leftover weather points into a close percentage.
+  const pavementThreat =
+    surface.includes('ice') ||
+    surface.includes('snow') ||
+    surface.includes('closed') ||
+    surface.includes('drifting') ||
+    surface.includes('slush');
+  if (
+    features.snowfallInches < 0.5 &&
+    features.iceInches < 0.05 &&
+    !features.freezingRain &&
+    features.tempF > 35 &&
+    features.windChillF > 15 &&
+    corridorHazard < 40 &&
+    !pavementThreat
+  ) {
+    factors.push('No snow, ice, or extreme cold — close likelihood is 0');
+    return {
+      pClosed: 0,
+      pDelay: 0,
+      pOpen: 1,
+      categoryLabel: 'Open (Normal)',
+      rationale: 'No snow, ice, or extreme cold. Schools stay open.',
+      factors,
+    };
+  }
 
   // ——— Safety override: bus-stop arctic wind chill (VT-SND-005) ———
   if (features.windChillF <= b.busStopWindChillF) {

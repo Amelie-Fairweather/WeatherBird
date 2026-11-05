@@ -1237,30 +1237,27 @@ export async function predictSnowDay(
     passable: studentRouteAssessment?.passable,
   });
 
-  // When VTrans corridors exist, trust calibrated multinomial; otherwise keep additive scores
-  // but still apply arctic / ice overrides from training.
-  if (hasVTransCorridors || calibrated.categoryLabel === 'Closed (Snow Day)') {
-    fullClosingScore = calibrated.fullClosingProbability;
-    delayScore = Math.max(delayScore, calibrated.delayProbability);
-    // If training says delay preferred, keep close lower than delay
-    if (calibrated.categoryLabel === 'Delayed Start (2-Hr)') {
-      fullClosingScore = calibrated.fullClosingProbability;
-      delayScore = calibrated.delayProbability;
-    }
-    if (calibrated.categoryLabel === 'Open (Normal)') {
-      fullClosingScore = calibrated.fullClosingProbability;
-      delayScore = calibrated.delayProbability;
-    }
-    factors.push(...calibrated.factors.slice(0, 6));
-  } else {
-    factors.push('Training calibration available — applied overrides only (no corridor RWIS)');
-    if (windChill <= VT_SNOW_DAY_BASELINES.busStopWindChillF) {
-      fullClosingScore = Math.max(fullClosingScore, calibrated.fullClosingProbability);
-    }
-  }
+  // The three percentages ARE the call. A mild day (above freezing, no snow, no ice)
+  // is 0 — do not leave the raw weather-point total on the card.
+  const benignDay =
+    snowfall < 0.5 &&
+    (forecast.ice || 0) <= 0 &&
+    !calibrationFeatures.freezingRain &&
+    temperatureF > 32 &&
+    windChill > 10;
 
-  // Early dismissal is less common, use lower scores
-  earlyDismissalScore = Math.min(fullClosingScore * 0.6, 70);
+  // Percentages are the close / delay / early-dismissal likelihood, not the raw point total.
+  fullClosingScore = benignDay ? 0 : calibrated.fullClosingProbability;
+  delayScore = benignDay ? 0 : calibrated.delayProbability;
+  earlyDismissalScore = benignDay ? 0 : calibrated.earlyDismissalProbability;
+  if (benignDay || (fullClosingScore === 0 && delayScore === 0)) {
+    fullClosingScore = 0;
+    delayScore = 0;
+    earlyDismissalScore = 0;
+    factors.push(
+      `${temperatureF.toFixed(0)}°F, ${snowfall.toFixed(1)}" snow, no ice — close likelihood 0%`
+    );
+  }
   
   // Cap all scores at 100
   fullClosingScore = Math.min(100, Math.round(fullClosingScore));
@@ -1434,10 +1431,10 @@ export async function predictSnowDay(
     nearbySensors: roadConditions.slice(0, 12),
     localSensorBriefing: localSensorBriefing || undefined,
     studentRoutes: studentRouteAssessment || undefined,
-    decision_category: calibrated.categoryLabel,
-    p_closed: calibrated.pClosed,
-    p_delay: calibrated.pDelay,
-    p_open: calibrated.pOpen,
+    decision_category: benignDay ? 'Open (Normal)' : calibrated.categoryLabel,
+    p_closed: benignDay ? 0 : calibrated.pClosed,
+    p_delay: benignDay ? 0 : calibrated.pDelay,
+    p_open: benignDay ? 1 : calibrated.pOpen,
     training_rationale: calibrated.rationale,
     scoring_breakdown: {
       weather_score: calibrated.weatherScore,
