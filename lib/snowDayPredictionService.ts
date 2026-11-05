@@ -1055,6 +1055,74 @@ export async function predictSnowDay(
     }
   }
 
+  // ——— VTrans-DOMINANT BLEND ———
+  // When live RWIS exists on school morning corridors, pavement/μ holds most weight.
+  // Sky/weather APIs still matter, but they must not outvote clear VTrans corridor signal.
+  const hasVTransCorridors =
+    !!studentRouteAssessment && studentRouteAssessment.corridorSensors.length > 0;
+
+  if (hasVTransCorridors && studentRouteAssessment) {
+    const vtransClosePts = studentRouteAssessment.closingAdjustment;
+    const vtransDelayPts = studentRouteAssessment.delayAdjustment;
+    // Remove the additive VTrans pts already folded in so we can re-blend intentionally
+    const weatherClose = Math.max(0, fullClosingScore - vtransClosePts);
+    const weatherDelay = Math.max(0, delayScore - vtransDelayPts);
+
+    // Map corridor hazard (0–100) + passability into the primary decision signal
+    let vtransCloseSignal = studentRouteAssessment.routeHazardScore;
+    let vtransDelaySignal = Math.round(studentRouteAssessment.routeHazardScore * 0.85);
+    if (!studentRouteAssessment.passable) {
+      vtransCloseSignal = Math.max(vtransCloseSignal, 75);
+      vtransDelaySignal = Math.max(vtransDelaySignal, 70);
+    }
+    // Stack explicit pavement penalties (ice/μ/closed) on top of hazard
+    vtransCloseSignal = Math.min(100, vtransCloseSignal + Math.max(0, vtransClosePts) * 0.35);
+    vtransDelaySignal = Math.min(100, vtransDelaySignal + Math.max(0, vtransDelayPts) * 0.35);
+
+    const VTRANS_WEIGHT = 0.7;
+    const WEATHER_WEIGHT = 0.3;
+    fullClosingScore =
+      vtransCloseSignal * VTRANS_WEIGHT + Math.min(100, weatherClose) * WEATHER_WEIGHT;
+    delayScore =
+      vtransDelaySignal * VTRANS_WEIGHT + Math.min(100, weatherDelay) * WEATHER_WEIGHT;
+
+    // Hard floors/ceilings so returned % reflects road reality
+    if (!studentRouteAssessment.passable || studentRouteAssessment.routeHazardScore >= 70) {
+      fullClosingScore = Math.max(fullClosingScore, 70);
+      delayScore = Math.max(delayScore, 65);
+      factors.push(
+        `VTrans-weighted decision (70%): corridor pavement hazard ${studentRouteAssessment.routeHazardScore}/100 — roads drive the close/delay call`
+      );
+    } else if (
+      studentRouteAssessment.passable &&
+      studentRouteAssessment.routeHazardScore <= 25
+    ) {
+      // Clear VTrans corridors: forecast snow alone shouldn't force a full close
+      const extremeIce =
+        !!(forecast.ice && forecast.ice >= (thresholds.ice_threshold || 0.05)) ||
+        conditionLower.includes('freezing rain');
+      const extremeSnow = snowfall >= (thresholds.full_closing_snowfall_threshold || 8);
+      if (!extremeIce && !extremeSnow) {
+        fullClosingScore = Math.min(fullClosingScore, 42);
+        factors.push(
+          `VTrans-weighted decision (70%): corridors mostly clear (hazard ${studentRouteAssessment.routeHazardScore}/100) — caps full-close unless extreme ice/snow forecast`
+        );
+      } else {
+        factors.push(
+          `VTrans corridors look passable, but extreme sky/ice forecast still elevates close risk (blend 70/30)`
+        );
+      }
+    } else {
+      factors.push(
+        `VTrans-weighted decision (70% pavement / 30% sky APIs): corridor hazard ${studentRouteAssessment.routeHazardScore}/100`
+      );
+    }
+  } else {
+    factors.push(
+      'No VTrans sensors on school corridors — sky/weather APIs + district-wide road layers carry the score'
+    );
+  }
+
   // Cap scores at 100
   fullClosingScore = Math.min(fullClosingScore, 100);
   delayScore = Math.min(delayScore, 100);
@@ -1097,18 +1165,18 @@ export async function predictSnowDay(
   const isDecisionWindowForReasons = forecastTargetHour >= 4 && forecastTargetHour <= 6;
   
   if (fullClosingScore >= 70) {
-    // Identify the main reason(s) for closure — student/bus routes to high school first
-    if (studentRouteAssessment && !studentRouteAssessment.passable) {
-      const hs = studentRouteAssessment.highSchools.map((h) => h.name).join(', ') || 'district high school';
-      closureReasons.push(
-        `VTrans pavement/surface unsafe on student routes to ${hs} (hazard ${studentRouteAssessment.routeHazardScore}/100)`
-      );
-    } else if (
-      studentRouteAssessment &&
-      studentRouteAssessment.routeHazardScore >= 55 &&
-      studentRouteAssessment.corridorSensors.length > 0
-    ) {
-      closureReasons.push(studentRouteAssessment.summary);
+    // Identify the main reason(s) for closure — VTrans school corridors first (highest weight)
+    if (studentRouteAssessment && studentRouteAssessment.corridorSensors.length > 0) {
+      const hs =
+        studentRouteAssessment.highSchools.map((h) => h.name).join(', ') ||
+        'district high school';
+      if (!studentRouteAssessment.passable || studentRouteAssessment.routeHazardScore >= 55) {
+        closureReasons.push(
+          `VTrans RWIS on routes to ${hs}: hazard ${studentRouteAssessment.routeHazardScore}/100 (primary close signal)`
+        );
+      } else if (studentRouteAssessment.summary) {
+        closureReasons.push(studentRouteAssessment.summary);
+      }
     }
 
     // TIMING (most critical for forecast-only cases)

@@ -439,17 +439,17 @@ export async function assessStudentRoutes(
   let closingAdjustment = 0;
   let delayAdjustment = 0;
 
-  // HEAVY weights: bus/student route pavement decides closures
+  // HEAVY weights: bus/student route pavement decides closures (primary signal)
   if (closed.length > 0) {
-    closingAdjustment += 40;
-    delayAdjustment += 25;
+    closingAdjustment += 55;
+    delayAdjustment += 35;
     factors.push(
-      `CRITICAL: ${closed.length} closed sensor(s) on routes to ${highSchools[0].name} — buses cannot run`
+      `CRITICAL: ${closed.length} closed VTrans sensor(s) on routes to ${highSchools[0].name} — buses cannot run`
     );
   }
   if (icy.length > 0) {
-    closingAdjustment += Math.min(38, 20 + icy.length * 6);
-    delayAdjustment += Math.min(28, 14 + icy.length * 4);
+    closingAdjustment += Math.min(50, 28 + icy.length * 8);
+    delayAdjustment += Math.min(36, 18 + icy.length * 5);
     factors.push(
       `Ice on student approach routes (${icy
         .slice(0, 3)
@@ -458,8 +458,8 @@ export async function assessStudentRoutes(
     );
   }
   if (snowCovered.length > 0) {
-    closingAdjustment += Math.min(30, 14 + snowCovered.length * 5);
-    delayAdjustment += Math.min(22, 10 + snowCovered.length * 4);
+    closingAdjustment += Math.min(40, 20 + snowCovered.length * 6);
+    delayAdjustment += Math.min(30, 14 + snowCovered.length * 5);
     factors.push(
       `Snow-covered pavement on student corridors (${snowCovered.length} VTrans station${
         snowCovered.length > 1 ? 's' : ''
@@ -467,16 +467,16 @@ export async function assessStudentRoutes(
     );
   }
   if (lowMu.length > 0) {
-    closingAdjustment += Math.min(28, 12 + lowMu.length * 5);
-    delayAdjustment += Math.min(20, 8 + lowMu.length * 4);
+    closingAdjustment += Math.min(36, 16 + lowMu.length * 6);
+    delayAdjustment += Math.min(28, 12 + lowMu.length * 5);
     const worstMu = Math.min(...lowMu.map((s) => s.surfaceFriction ?? 1));
     factors.push(
       `Low surface friction on student routes (worst μ=${worstMu.toFixed(2)}) — bus braking unreliable`
     );
   }
   if (freezingPavement.length > 0) {
-    closingAdjustment += Math.min(18, 8 + freezingPavement.length * 3);
-    delayAdjustment += Math.min(14, 6 + freezingPavement.length * 2);
+    closingAdjustment += Math.min(24, 10 + freezingPavement.length * 4);
+    delayAdjustment += Math.min(18, 8 + freezingPavement.length * 3);
     factors.push(
       `Pavement at/below freezing on ${freezingPavement.length} student-route sensor${
         freezingPavement.length > 1 ? 's' : ''
@@ -491,8 +491,8 @@ export async function assessStudentRoutes(
     closed.length === 0 &&
     snowCovered.length === 0
   ) {
-    closingAdjustment -= 12;
-    delayAdjustment -= 8;
+    closingAdjustment -= 20;
+    delayAdjustment -= 12;
     factors.push(
       `VTrans: student routes to ${highSchools[0].name} mostly clear with usable grip — favors staying open / delay over full close`
     );
@@ -500,11 +500,11 @@ export async function assessStudentRoutes(
 
   // Scale adjustments by overall hazard score
   if (routeHazardScore >= 70) {
-    closingAdjustment += 15;
-    delayAdjustment += 10;
+    closingAdjustment += 22;
+    delayAdjustment += 16;
   } else if (routeHazardScore >= 45) {
-    closingAdjustment += 8;
-    delayAdjustment += 10;
+    closingAdjustment += 12;
+    delayAdjustment += 14;
   }
 
   const passable =
