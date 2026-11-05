@@ -46,6 +46,114 @@ export function haversineMiles(
 /**
  * Resolve a US ZIP (Vermont-focused) to lat/lon via Zippopotam
  */
+export interface VermontPlaceLocation {
+  query: string;
+  latitude: number;
+  longitude: number;
+  displayName: string;
+  weatherQuery: string;
+}
+
+const placeCache = new Map<string, VermontPlaceLocation | null>();
+
+/**
+ * Geocode a Vermont place / street (e.g. "Spear Street") via OpenStreetMap Nominatim.
+ * Used when there is no RWIS station with that exact name — find lat/lon, then nearest sensors.
+ */
+export async function geocodeVermontPlace(
+  place: string
+): Promise<VermontPlaceLocation | null> {
+  const query = place.trim();
+  if (!query) return null;
+
+  const cacheKey = query.toLowerCase();
+  if (placeCache.has(cacheKey)) {
+    return placeCache.get(cacheKey) ?? null;
+  }
+
+  // If it's already a ZIP, reuse ZIP resolver
+  if (/^\d{5}$/.test(query)) {
+    const zip = await resolveVermontZip(query);
+    if (!zip) {
+      placeCache.set(cacheKey, null);
+      return null;
+    }
+    const asPlace: VermontPlaceLocation = {
+      query,
+      latitude: zip.latitude,
+      longitude: zip.longitude,
+      displayName: zip.displayName,
+      weatherQuery: zip.weatherQuery,
+    };
+    placeCache.set(cacheKey, asPlace);
+    return asPlace;
+  }
+
+  try {
+    const search = encodeURIComponent(
+      /vermont/i.test(query) ? query : `${query}, Vermont, USA`
+    );
+    const url =
+      `https://nominatim.openstreetmap.org/search?q=${search}` +
+      `&format=json&limit=1&countrycodes=us&addressdetails=0`;
+
+    const response = await fetch(url, {
+      headers: {
+        Accept: 'application/json',
+        // Nominatim requires a valid identifying User-Agent
+        'User-Agent': 'WEATHERbird/1.0 (Vermont road weather; weatherbirdvt.com)',
+      },
+      signal: AbortSignal.timeout(10000),
+    });
+
+    if (!response.ok) {
+      placeCache.set(cacheKey, null);
+      return null;
+    }
+
+    const results = await response.json();
+    const hit = Array.isArray(results) ? results[0] : null;
+    if (!hit?.lat || !hit?.lon) {
+      placeCache.set(cacheKey, null);
+      return null;
+    }
+
+    const latitude = parseFloat(hit.lat);
+    const longitude = parseFloat(hit.lon);
+    if (Number.isNaN(latitude) || Number.isNaN(longitude)) {
+      placeCache.set(cacheKey, null);
+      return null;
+    }
+
+    // Sanity: keep results roughly in/near Vermont
+    if (latitude < 42.5 || latitude > 45.5 || longitude > -71.2 || longitude < -74.0) {
+      console.warn(`[VT Location] Geocode for "${query}" outside VT bbox — rejecting`);
+      placeCache.set(cacheKey, null);
+      return null;
+    }
+
+    const resolved: VermontPlaceLocation = {
+      query,
+      latitude,
+      longitude,
+      displayName: hit.display_name || `${query}, Vermont`,
+      weatherQuery: `${latitude},${longitude}`,
+    };
+    placeCache.set(cacheKey, resolved);
+    console.log(
+      `[VT Location] Geocoded "${query}" → ${latitude.toFixed(4)}, ${longitude.toFixed(4)}`
+    );
+    return resolved;
+  } catch (error) {
+    console.warn(
+      `[VT Location] Geocode failed for "${query}":`,
+      error instanceof Error ? error.message : error
+    );
+    placeCache.set(cacheKey, null);
+    return null;
+  }
+}
+
 export async function resolveVermontZip(
   zipCode: string
 ): Promise<VermontZipLocation | null> {

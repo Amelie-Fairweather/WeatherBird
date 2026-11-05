@@ -616,6 +616,15 @@ interface RoadSearchResult {
       confidence: number;
       dataSources: string[];
     };
+    nearbySensors?: Array<{
+      name: string;
+      route: string;
+      distanceMiles: number;
+      condition: string;
+      frictionMu?: number;
+      pavementTempF?: number;
+      airTempF?: number;
+    }>;
   };
   searchQuery?: string;
 }
@@ -776,6 +785,33 @@ export default function VermontRoadSafetyMap() {
                 <p className="text-gray-700">
                   <span className="font-semibold">Severity:</span> {searchResult.assessment.severity}
                 </p>
+
+                {searchResult.assessment.nearbySensors &&
+                  searchResult.assessment.nearbySensors.length > 0 && (
+                  <div className="mt-3 p-2 bg-emerald-50 border border-emerald-200 rounded">
+                    <p className="font-semibold text-emerald-900 mb-1">Nearest VTrans RWIS</p>
+                    <ul className="space-y-1 text-xs text-emerald-900">
+                      {searchResult.assessment.nearbySensors.slice(0, 3).map(
+                        (
+                          s: {
+                            name: string;
+                            distanceMiles: number;
+                            condition: string;
+                            frictionMu?: number;
+                            pavementTempF?: number;
+                          },
+                          idx: number
+                        ) => (
+                          <li key={idx}>
+                            {s.name} — {s.distanceMiles} mi — {s.condition}
+                            {s.frictionMu !== undefined ? ` · μ=${s.frictionMu.toFixed(2)}` : ''}
+                            {s.pavementTempF !== undefined ? ` · pavement ${s.pavementTempF}°F` : ''}
+                          </li>
+                        )
+                      )}
+                    </ul>
+                  </div>
+                )}
                 
                 {searchResult.assessment.criticalWarnings.length > 0 && (
                   <div className="mt-3 p-2 bg-red-50 border border-red-200 rounded">

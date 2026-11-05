@@ -7,6 +7,11 @@ import { fetchAllRoadConditions, RoadCondition } from './roadDataService';
 import { fetchWeatherFromProvider } from './unifiedWeatherService';
 import { fetchNWSAlerts } from './nwsService';
 import { fetchXweatherAlerts } from './xweatherService';
+import {
+  geocodeVermontPlace,
+  filterConditionsNearLocation,
+  type NearbyRoadCondition,
+} from './vermontLocationService';
 
 export interface RoadSafetyAssessment {
   route: string;
@@ -94,6 +99,22 @@ export interface RoadSafetyAssessment {
     dataSources: string[];
     confidence: number; // 0-100
   };
+
+  /** Nearest VTrans RWIS (local streets rarely have a sensor on the street itself) */
+  nearbySensors?: Array<{
+    name: string;
+    route: string;
+    distanceMiles: number;
+    condition: string;
+    frictionMu?: number;
+    pavementTempF?: number;
+    airTempF?: number;
+  }>;
+  locationResolved?: {
+    displayName: string;
+    latitude: number;
+    longitude: number;
+  };
   
   lastUpdated: string;
 }
@@ -105,24 +126,28 @@ export async function calculateRoadSafetyAssessment(
   route: string,
   location?: string
 ): Promise<RoadSafetyAssessment> {
-  const assessmentLocation = location || 'Vermont';
+  const assessmentLocation = location || route || 'Vermont';
+
+  // Geocode street/town so local roads (e.g. Spear Street) get nearest VTrans RWIS
+  const placeQuery = [route, location].filter(Boolean).join(', ');
+  const geocoded = await geocodeVermontPlace(placeQuery).catch(() => null);
+  const weatherQuery = geocoded?.weatherQuery || assessmentLocation;
   
-  // Fetch comprehensive weather data
+  // Fetch comprehensive weather data at the geocoded point when possible
   let weatherData;
   try {
-    weatherData = await fetchWeatherFromProvider(assessmentLocation, 'auto');
+    weatherData = await fetchWeatherFromProvider(weatherQuery, 'auto');
   } catch (error) {
-    // Fallback to general Vermont weather if location-specific fails
-    console.warn(`[Road Safety] Failed to fetch weather for ${assessmentLocation}, trying Vermont:`, error);
+    console.warn(`[Road Safety] Failed to fetch weather for ${weatherQuery}, trying Vermont:`, error);
     weatherData = await fetchWeatherFromProvider('Vermont', 'auto');
   }
   
   let roadConditions: RoadCondition[];
   try {
-    roadConditions = await fetchAllRoadConditions(assessmentLocation);
+    roadConditions = await fetchAllRoadConditions(weatherQuery);
   } catch (error) {
-    console.warn(`[Road Safety] Failed to fetch road conditions for ${assessmentLocation}:`, error);
-    roadConditions = []; // Empty array, will use general weather-based assessment
+    console.warn(`[Road Safety] Failed to fetch road conditions for ${weatherQuery}:`, error);
+    roadConditions = [];
   }
   
   // Fetch flood warnings from NWS and Xweather
@@ -130,7 +155,7 @@ export async function calculateRoadSafetyAssessment(
   try {
     const [nwsAlerts, xweatherAlerts] = await Promise.all([
       fetchNWSAlerts('VT').catch(() => []),
-      fetchXweatherAlerts(assessmentLocation, 20).catch(() => []),
+      fetchXweatherAlerts(weatherQuery, 20).catch(() => []),
     ]);
     
     // Extract flood-related alerts
@@ -143,57 +168,94 @@ export async function calculateRoadSafetyAssessment(
   } catch (error) {
     console.warn(`[Road Safety] Failed to fetch flood warnings:`, error);
   }
-  
-  // Find specific road condition for this route
-  // Try multiple matching strategies for better results
-  let routeCondition = roadConditions.find(rc => 
-    rc.route.toLowerCase().includes(route.toLowerCase()) ||
-    route.toLowerCase().includes(rc.route.toLowerCase())
-  );
-  
-  // If no exact match, try matching just the road name part (e.g., "Spear" from "Spear Street")
-  if (!routeCondition && route.includes(' ')) {
-    const roadName = route.split(' ')[0]; // Get first word (e.g., "Spear")
-    routeCondition = roadConditions.find(rc => 
-      rc.route.toLowerCase().includes(roadName.toLowerCase())
+
+  // Prefer name match only for real highway/route IDs (I-89, US-7) — not local street name fragments
+  const looksLikeNumberedRoute = /\b(i-?\d+|us-?\d+|vt-?\d+|route\s*\d+)\b/i.test(route);
+  let routeCondition: RoadCondition | undefined;
+  if (looksLikeNumberedRoute) {
+    routeCondition = roadConditions.find(
+      (rc) =>
+        rc.route.toLowerCase().includes(route.toLowerCase()) ||
+        route.toLowerCase().includes(rc.route.toLowerCase()) ||
+        (rc.stationName &&
+          rc.stationName.toLowerCase().includes(route.toLowerCase()))
     );
+  }
+
+  // Nearest VTrans RWIS to this street/place (local streets almost never have on-street sensors)
+  let nearbyRwis: NearbyRoadCondition[] = [];
+  if (geocoded) {
+    nearbyRwis = filterConditionsNearLocation(
+      roadConditions.filter((c) => c.source === 'VTrans RWIS'),
+      geocoded.latitude,
+      geocoded.longitude,
+      25
+    );
+    console.log(
+      `[Road Safety] "${route}" geocoded → ${nearbyRwis.length} VTrans RWIS within 25 mi`
+    );
+  }
+
+  const nearestRwis = nearbyRwis[0];
+  if (!routeCondition && nearestRwis) {
+    // Use nearest pavement sensor as ground truth for this local street
+    routeCondition = {
+      ...nearestRwis,
+      route,
+      stationName: nearestRwis.stationName,
+      warning:
+        `No RWIS on "${route}" itself. Nearest VTrans sensor: ${nearestRwis.stationName || nearestRwis.route} ` +
+        `(${nearestRwis.distanceMiles.toFixed(1)} mi) — ${nearestRwis.condition}` +
+        (nearestRwis.surfaceFriction !== undefined
+          ? `, μ=${nearestRwis.surfaceFriction.toFixed(2)}`
+          : '') +
+        (nearestRwis.pavementTemperature !== undefined
+          ? `, pavement ${nearestRwis.pavementTemperature.toFixed(0)}°F`
+          : ''),
+      source: 'VTrans RWIS',
+    };
   }
   
   const tempF = Math.round((weatherData.temperature * 9/5) + 32);
   const windMph = Math.round(weatherData.windSpeed * 2.237);
   const humidity = weatherData.humidity;
   const desc = weatherData.description.toLowerCase();
+
+  // Prefer RWIS air/pavement temp when assessing local surface risk
+  const surfaceTempF =
+    routeCondition?.pavementTemperature ??
+    routeCondition?.temperature ??
+    tempF;
   
-  // Fallback to general conditions or create a weather-based condition
+  // Last resort: weather-derived surface (only if no nearby VTrans)
   if (!routeCondition) {
-    // Derive road condition from weather data
     let weatherBasedCondition: 'clear' | 'wet' | 'snow-covered' | 'ice' | 'closed' | 'unknown' = 'unknown';
     
-    // Determine condition based on weather description and temperature
     if (desc.includes('freezing rain') || (desc.includes('rain') && tempF <= 32)) {
       weatherBasedCondition = 'ice';
     } else if (desc.includes('sleet')) {
       weatherBasedCondition = 'ice';
     } else if (desc.includes('snow')) {
       weatherBasedCondition = 'snow-covered';
-    } else if (desc.includes('rain') || desc.includes('drizzle')) {
+    } else if (desc.includes('rain') || desc.includes('drizzle') || desc.includes('shower')) {
       weatherBasedCondition = 'wet';
     } else if (tempF <= 32 && (desc.includes('cloud') || desc.includes('overcast'))) {
-      // Cold and cloudy - potential for ice
-      weatherBasedCondition = 'wet'; // Will be assessed as potential ice risk
+      weatherBasedCondition = 'wet';
     } else if (desc.includes('clear') || desc.includes('sunny') || desc.includes('fair')) {
       weatherBasedCondition = 'clear';
     }
     
-    routeCondition = roadConditions[0] || {
+    routeCondition = {
       route: route,
       condition: weatherBasedCondition,
       temperature: tempF,
       source: 'Weather-Based Prediction',
       timestamp: new Date().toISOString(),
-      warning: weatherBasedCondition === 'unknown' 
-        ? 'Road condition estimated from weather data. Actual conditions may vary.'
-        : `Condition estimated from current weather: ${desc}. Use caution and check official sources.`,
+      warning: geocoded
+        ? `No VTrans RWIS within 25 mi of ${geocoded.displayName}. Surface estimated from weather (${desc}).`
+        : weatherBasedCondition === 'unknown'
+          ? 'Road condition estimated from weather data. Actual conditions may vary.'
+          : `Condition estimated from current weather: ${desc}. Use caution and check official sources.`,
     };
   }
   
@@ -208,8 +270,8 @@ export async function calculateRoadSafetyAssessment(
   // Factor 2: Precipitation Risk (0-30 points) - includes flood detection
   const precipitationRisk = calculatePrecipitationRisk(desc, tempF, weatherData.temperature, floodWarnings);
   
-  // Factor 3: Road Surface Risk (0-30 points)
-  const roadSurfaceRisk = calculateRoadSurfaceRisk(routeCondition, tempF);
+  // Factor 3: Road Surface Risk (0-30 points) — use RWIS pavement temp when available
+  const roadSurfaceRisk = calculateRoadSurfaceRisk(routeCondition, surfaceTempF);
   
   // Factor 4: Visibility Risk (0-10 points)
   const visibilityRisk = calculateVisibilityRisk(desc, windMph, humidity);
@@ -218,8 +280,28 @@ export async function calculateRoadSafetyAssessment(
   const windRisk = calculateWindRisk(windMph);
   
   // Factor 6: Black Ice Risk (0-25 points)
-  const blackIceRisk = calculateBlackIceRisk(tempF, humidity, desc, routeCondition);
-  
+  const blackIceRisk = calculateBlackIceRisk(surfaceTempF, humidity, desc, routeCondition);
+
+  // Friction from nearest RWIS tightens surface risk when available
+  if (
+    routeCondition.surfaceFriction !== undefined &&
+    routeCondition.surfaceFriction < 0.65
+  ) {
+    const mu = routeCondition.surfaceFriction;
+    const bump = mu < 0.5 ? 12 : mu < 0.55 ? 8 : 4;
+    roadSurfaceRisk.score = Math.min(30, roadSurfaceRisk.score + bump);
+    if (mu < 0.55 && roadSurfaceRisk.level === 'low') {
+      roadSurfaceRisk.level = 'moderate';
+    }
+    if (mu < 0.5) {
+      roadSurfaceRisk.level = 'high';
+    }
+    roadSurfaceRisk.details.push(
+      `VTrans friction μ=${mu.toFixed(2)} at ${routeCondition.stationName || 'nearest sensor'}`
+    );
+    roadSurfaceRisk.description += ` (μ=${mu.toFixed(2)})`;
+  }
+
   // Calculate total score
   const totalScore = Math.max(0, Math.min(100, 
     100 - temperatureRisk.score - precipitationRisk.score - 
@@ -282,16 +364,49 @@ export async function calculateRoadSafetyAssessment(
     blackIceRisk,
     routeCondition
   );
+
+  if (nearestRwis) {
+    recommendations.unshift({
+      priority: 'moderate',
+      action: `Use nearest VTrans sensor ${nearestRwis.stationName || nearestRwis.route}`,
+      reasoning:
+        `"${route}" has no on-street RWIS. Closest pavement reading is ${nearestRwis.distanceMiles.toFixed(1)} mi away ` +
+        `(${nearestRwis.condition}` +
+        (nearestRwis.surfaceFriction !== undefined
+          ? `, μ=${nearestRwis.surfaceFriction.toFixed(2)}`
+          : '') +
+        '). Sky weather still from NWS/APIs.',
+    });
+  }
   
   // Travel advice
   const travelAdvice = generateTravelAdvice(totalScore, routeCondition, criticalWarnings);
+
+  const dataSources = [
+    weatherData.source || 'NWS',
+    routeCondition.source,
+    ...nearbyRwis
+      .slice(0, 3)
+      .map((s) => s.source)
+      .filter((s, i, arr) => arr.indexOf(s) === i),
+  ].filter((s, i, arr) => s && arr.indexOf(s) === i);
+
+  let confidence = calculateConfidence(weatherData, routeCondition);
+  if (nearestRwis) confidence = Math.min(100, confidence + 15);
+  if (geocoded) confidence = Math.min(100, confidence + 5);
+  if (routeCondition.source === 'Weather-Based Prediction') {
+    confidence = Math.min(confidence, 70);
+  }
   
   return {
     route,
     safetyRating,
     safetyScore: totalScore,
     severity,
-    temperatureF: tempF,
+    temperatureF:
+      routeCondition.pavementTemperature !== undefined
+        ? Math.round(routeCondition.pavementTemperature)
+        : tempF,
     condition: weatherData.description,
     roadCondition: routeCondition.condition,
     factors: {
@@ -311,9 +426,28 @@ export async function calculateRoadSafetyAssessment(
       roadConditionFreshness: routeCondition.timestamp 
         ? Math.round((Date.now() - new Date(routeCondition.timestamp).getTime()) / 60000)
         : 0,
-      dataSources: [weatherData.source || 'Unknown', routeCondition.source],
-      confidence: calculateConfidence(weatherData, routeCondition),
+      dataSources,
+      confidence,
     },
+    nearbySensors: nearbyRwis.slice(0, 5).map((s) => ({
+      name: s.stationName || s.route,
+      route: s.route,
+      distanceMiles: Math.round(s.distanceMiles * 10) / 10,
+      condition: s.condition,
+      frictionMu: s.surfaceFriction,
+      pavementTempF:
+        s.pavementTemperature !== undefined
+          ? Math.round(s.pavementTemperature)
+          : undefined,
+      airTempF: s.temperature !== undefined ? Math.round(s.temperature) : undefined,
+    })),
+    locationResolved: geocoded
+      ? {
+          displayName: geocoded.displayName,
+          latitude: geocoded.latitude,
+          longitude: geocoded.longitude,
+        }
+      : undefined,
     lastUpdated: new Date().toISOString(),
   };
 }
