@@ -68,14 +68,33 @@ interface PlowLocation {
 
 interface DangerousRoad {
   route: string;
+  stationName?: string;
+  source?: string;
   condition: string;
   severity: 'low' | 'moderate' | 'high' | 'extreme';
   safetyLevel: 'excellent' | 'good' | 'caution' | 'poor' | 'hazardous';
   safetyScore: number;
+  confidence?: number;
   description: string;
   coordinates?: Array<[number, number]>;
   warning?: string;
   routeId?: string;
+  factors?: Record<
+    string,
+    { score: number; weight: number; description: string; label?: string }
+  >;
+  topRisks?: Array<{ label: string; score: number; description: string }>;
+  actionableInsights?: string[];
+  metrics?: {
+    airTempF?: number;
+    pavementTempF?: number;
+    frictionMu?: number;
+    windMph?: number;
+    dataAgeMinutes?: number;
+    stationName?: string;
+    route?: string;
+    source?: string;
+  };
 }
 
 interface MapData {
@@ -271,46 +290,127 @@ function BasicRoadInfo({ road }: { road: DangerousRoad }) {
     return 'Extreme risk - avoid travel';
   };
   
+  const [showFactors, setShowFactors] = useState(false);
+  const factorEntries = road.factors
+    ? Object.values(road.factors).sort((a, b) => a.score - b.score)
+    : [];
+
   return (
     <>
-      <h4 className="font-bold font-cormorant text-lg mb-3 text-[var(--darkBlue)]">
-        {road.route}
+      <h4 className="font-bold font-cormorant text-lg mb-1 text-[var(--darkBlue)]">
+        {road.stationName || road.route}
       </h4>
+      {road.stationName && road.stationName !== road.route && (
+        <p className="text-xs text-gray-500 font-cormorant mb-2">{road.route}</p>
+      )}
       
       {/* PROMINENT SAFETY SCORE DISPLAY */}
       <div className={`inline-block px-4 py-3 rounded-lg border-3 mb-3 shadow-md w-full text-center ${getRatingBg(road.safetyLevel)}`}>
         <div className="text-center">
-          <div className="text-xs font-semibold font-cormorant text-gray-600 mb-1 uppercase tracking-wide">SAFETY SCORE</div>
+          <div className="text-xs font-semibold font-cormorant text-gray-600 mb-1 uppercase tracking-wide">8-FACTOR SAFETY SCORE</div>
           <div className={`text-4xl font-bold font-cormorant ${getRatingColor(road.safetyLevel)} mb-1`}>
             {road.safetyScore}/100
           </div>
           <div className={`text-base font-bold font-cormorant ${getRatingColor(road.safetyLevel)}`}>
             {road.safetyLevel.toUpperCase()}
           </div>
+          {road.confidence !== undefined && (
+            <div className="text-xs text-gray-600 font-cormorant mt-1">
+              Confidence {road.confidence}%
+              {road.source ? ` · ${road.source}` : ''}
+            </div>
+          )}
         </div>
       </div>
       
       <p className="text-sm text-gray-700 font-cormorant mb-3 italic text-center">
         {getSafetyDescription(road.safetyScore, road.safetyLevel)}
       </p>
+
+      {/* Live metrics strip */}
+      {road.metrics && (
+        <div className="grid grid-cols-2 gap-1 mb-3 text-xs font-cormorant">
+          {road.metrics.frictionMu !== undefined && (
+            <div className="bg-gray-50 rounded px-2 py-1">μ {road.metrics.frictionMu.toFixed(2)}</div>
+          )}
+          {road.metrics.pavementTempF !== undefined && (
+            <div className="bg-gray-50 rounded px-2 py-1">Pavement {road.metrics.pavementTempF}°F</div>
+          )}
+          {road.metrics.airTempF !== undefined && (
+            <div className="bg-gray-50 rounded px-2 py-1">Air {road.metrics.airTempF}°F</div>
+          )}
+          {road.metrics.windMph !== undefined && (
+            <div className="bg-gray-50 rounded px-2 py-1">Wind {road.metrics.windMph} mph</div>
+          )}
+          {road.metrics.dataAgeMinutes !== undefined && (
+            <div className="bg-gray-50 rounded px-2 py-1 col-span-2">
+              Data age {road.metrics.dataAgeMinutes} min
+            </div>
+          )}
+        </div>
+      )}
       
-      <div className="mt-3 pt-3 border-t border-gray-300">
+      <div className="mt-2 pt-2 border-t border-gray-300">
         <p className="text-sm text-gray-800 font-cormorant mb-2">
-          <span className="font-semibold">Condition:</span> <span className="capitalize">{road.condition}</span>
+          <span className="font-semibold">Condition:</span>{' '}
+          <span className="capitalize">{road.condition}</span>
         </p>
         <p className="text-sm text-gray-700 font-cormorant mb-2">
           {road.description}
         </p>
+        {road.actionableInsights && road.actionableInsights.length > 0 && (
+          <ul className="text-xs text-gray-700 font-cormorant mb-2 space-y-1 list-disc pl-4">
+            {road.actionableInsights.slice(0, 4).map((insight, i) => (
+              <li key={i}>{insight}</li>
+            ))}
+          </ul>
+        )}
         {road.warning && (
           <div className="mt-2 pt-2 border-t border-gray-300">
-            <p className="text-xs text-gray-700 font-cormorant font-semibold mb-1">⚠️ Warning:</p>
+            <p className="text-xs text-gray-700 font-cormorant font-semibold mb-1">Warning</p>
             <p className="text-xs text-gray-600 font-cormorant">{road.warning}</p>
           </div>
         )}
       </div>
+
+      {factorEntries.length > 0 && (
+        <div className="mt-3 pt-2 border-t border-gray-200">
+          <button
+            type="button"
+            onClick={() => setShowFactors((v) => !v)}
+            className="w-full text-xs font-cormorant font-semibold text-blue-700 hover:text-blue-900 py-1"
+          >
+            {showFactors ? 'Hide' : 'Show'} 8-factor breakdown
+          </button>
+          {showFactors && (
+            <div className="mt-2 space-y-2 max-h-48 overflow-y-auto">
+              {factorEntries.map((f, i) => (
+                <div key={i} className="text-xs font-cormorant">
+                  <div className="flex justify-between mb-0.5">
+                    <span className="font-semibold">{f.label || 'Factor'}</span>
+                    <span>{Math.round(f.score)}/100 · w{f.weight}</span>
+                  </div>
+                  <div className="h-1.5 bg-gray-200 rounded overflow-hidden">
+                    <div
+                      className={`h-full ${f.score >= 70 ? 'bg-green-500' : f.score >= 45 ? 'bg-amber-500' : 'bg-red-500'}`}
+                      style={{ width: `${Math.max(4, Math.min(100, f.score))}%` }}
+                    />
+                  </div>
+                  <p className="text-gray-600 mt-0.5 leading-snug">{f.description}</p>
+                </div>
+              ))}
+              {road.topRisks && road.topRisks.length > 0 && (
+                <p className="text-xs font-semibold text-red-700 font-cormorant pt-1">
+                  Top risks: {road.topRisks.map((r) => r.label).join(', ')}
+                </p>
+              )}
+            </div>
+          )}
+        </div>
+      )}
       
       <p className="text-xs text-blue-600 font-cormorant mt-3 pt-2 border-t border-gray-200 italic text-center">
-        Click again to load comprehensive safety assessment
+        Click again for full district assessment
       </p>
     </>
   );

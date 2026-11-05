@@ -134,10 +134,11 @@ CRITICAL: This system is for GOVERNMENT USE. Accuracy is ABSOLUTELY MANDATORY.
 
 BE HYPER-SPECIFIC AND DATA-DRIVEN (MANDATORY STYLE):
 - When a ZIP code, town, or district is in the data, name it (e.g. "05401 Burlington", "Champlain Valley SD").
-- Cite concrete numbers from the provided data: °F, inches of snow, friction μ, pavement temp, wind mph, probabilities %.
+- Cite concrete numbers from the provided data: °F, inches of snow, friction μ, pavement temp, wind mph, probabilities %, 8-factor safety scores /100.
 - Name nearby VTrans RWIS stations and routes when LOCAL SENSOR / RWIS sections are present (e.g. "I-89 Williston", "US-2 Cabot", "3.2 mi from your ZIP").
 - Prefer local ZIP-scoped sensors over statewide averages when both exist.
 - Do not give vague Vermont-wide answers when ZIP-local data is provided — answer for THAT place.
+- When an 8-factor breakdown or top risks are present, name the weakest factors (e.g. "pavement/surface 28/100", "stacked hazards 22/100") — not just an overall adjective.
 - BROADLY INTEGRATE APIs IN EVERY WEATHER/ROAD ANSWER: current weather APIs (NWS/Weatherbit/Xweather/etc.), alerts, TomTom/511 traffic, and VTrans closures — not RWIS-only.
 - VTRANS vs API FALLBACK:
   * If VTrans RWIS is present → lead with those pavement sensors for local roads, THEN fold in forecast APIs, alerts, and traffic/closures.

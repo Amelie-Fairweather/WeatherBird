@@ -623,7 +623,19 @@ async function identifyDangerousRoads(
           safetyLevel: fallbackLevel,
           safetyScore: fallbackScore,
           severity: fallbackSeverity,
+          confidence: 50,
           explanation: condition.warning || `${condition.condition} conditions in ${routeName}`,
+          headline: `${routeName}: ${fallbackScore}/100 ${fallbackLevel}`,
+          factors: undefined,
+          topRisks: [],
+          actionableInsights: [
+            condition.warning || `${condition.condition} via weather-based prediction`,
+          ],
+          metrics: {
+            route: routeName,
+            source: condition.source,
+            dataAgeMinutes: 0,
+          },
         };
       } else {
         throw error; // Re-throw for non-weather-based conditions
@@ -717,16 +729,35 @@ async function identifyDangerousRoads(
     const sourceSuffix = condition.source ? `-${condition.source.toLowerCase()}` : '';
     const routeId = `road-${routeName.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '')}${sourceSuffix}-${Date.now()}`;
     
+    const fullScore = detailedScore as Awaited<
+      ReturnType<typeof calculateDetailedRoadSafetyScore>
+    >;
+
     return {
       route: routeName,
+      stationName: condition.stationName,
+      source: condition.source,
       condition: condition.condition,
       severity,
       safetyLevel,
       safetyScore,
-      description: condition.warning || explanation || `${condition.condition} conditions reported`,
+      confidence: fullScore.confidence,
+      description:
+        fullScore.headline ||
+        condition.warning ||
+        explanation ||
+        `${condition.condition} conditions reported`,
       coordinates,
-      warning: condition.warning || (condition.source === 'TomTom' ? `Real-time traffic incident: ${condition.condition}` : undefined),
+      warning:
+        condition.warning ||
+        (condition.source === 'TomTom'
+          ? `Real-time traffic incident: ${condition.condition}`
+          : undefined),
       routeId,
+      factors: fullScore.factors,
+      topRisks: fullScore.topRisks,
+      actionableInsights: fullScore.actionableInsights,
+      metrics: fullScore.metrics,
     };
   });
   
@@ -734,14 +765,21 @@ async function identifyDangerousRoads(
   const allScoredRoads = await Promise.all(roadScoringPromises);
   type ScoredRoad = {
     route: string;
+    stationName?: string;
+    source?: string;
     condition: 'clear' | 'wet' | 'snow-covered' | 'ice' | 'closed' | 'unknown';
     severity: 'low' | 'moderate' | 'high' | 'extreme';
     safetyLevel: 'excellent' | 'good' | 'caution' | 'poor' | 'hazardous';
     safetyScore: number;
+    confidence?: number;
     description: string;
     coordinates: Array<[number, number]>;
     warning?: string;
     routeId: string;
+    factors?: unknown;
+    topRisks?: Array<{ label: string; score: number; description: string }>;
+    actionableInsights?: string[];
+    metrics?: Record<string, unknown>;
   };
   const scoredRoads = allScoredRoads.filter((road): road is ScoredRoad => 
     road !== null && road.coordinates !== undefined && road.coordinates.length > 0

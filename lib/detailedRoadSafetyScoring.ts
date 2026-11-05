@@ -1,73 +1,96 @@
 /**
- * Detailed Road Safety Scoring Algorithm
- * 
- * This service provides sophisticated, multi-factor road safety assessment
- * that considers multiple variables to determine accurate, varying danger levels.
- * 
- * Factors considered:
- * - Road condition type and severity
- * - Temperature (critical for ice formation)
- * - Data freshness/age
- * - Source reliability
- * - Road type/importance
- * - Time of day
- * - Weather conditions (wind, visibility)
- * - Combination effects (e.g., ice + extreme cold = more dangerous)
+ * Detailed 8-Factor Road Safety Scoring
+ *
+ * True weighted average (weights sum to 100). Vermont-specific signals:
+ * VTrans RWIS friction (μ), pavement vs air temp, ZIP-local context,
+ * wind, bridge/mountain routes, commute windows, API fallback awareness.
  */
 
 import { RoadCondition } from './roadDataService';
+
+export interface FactorDetail {
+  score: number; // 0–100, higher = safer for this factor
+  weight: number; // contribution weight (sum = 100)
+  description: string;
+  label: string;
+}
 
 export interface DetailedRoadSafetyScore {
   safetyScore: number; // 0-100, higher is safer
   safetyLevel: 'excellent' | 'good' | 'caution' | 'poor' | 'hazardous';
   severity: 'low' | 'moderate' | 'high' | 'extreme';
   factors: {
-    baseCondition: { score: number; weight: number; description: string };
-    temperature: { score: number; weight: number; description: string };
-    dataFreshness: { score: number; weight: number; description: string };
-    severity: { score: number; weight: number; description: string };
-    sourceReliability: { score: number; weight: number; description: string };
-    roadType: { score: number; weight: number; description: string };
-    timeOfDay: { score: number; weight: number; description: string };
-    combinationEffects: { score: number; weight: number; description: string };
+    baseCondition: FactorDetail;
+    temperature: FactorDetail;
+    dataFreshness: FactorDetail;
+    severity: FactorDetail;
+    sourceReliability: FactorDetail;
+    roadType: FactorDetail;
+    timeOfDay: FactorDetail;
+    combinationEffects: FactorDetail;
   };
+  /** Ranked factors that most hurt the score (for interactive UI) */
+  topRisks: Array<{ label: string; score: number; description: string }>;
+  /** Concrete, citeable bullets for Maple / popups */
+  actionableInsights: string[];
+  headline: string;
   explanation: string;
-  confidence: number; // 0-100, how confident we are in this assessment
+  confidence: number;
+  metrics: {
+    airTempF?: number;
+    pavementTempF?: number;
+    frictionMu?: number;
+    windMph?: number;
+    dataAgeMinutes: number;
+    stationName?: string;
+    route: string;
+    source: string;
+  };
 }
 
-// Source reliability scores (0-100, higher = more reliable)
 const SOURCE_RELIABILITY: Record<string, number> = {
   'VTrans RWIS': 100,
+  'VTrans Lane Closures': 95,
   'VTrans Lane Closure': 95,
+  'VTrans Incidents': 95,
   'VTrans Incident': 95,
-  'NWS': 90,
-  'Xweather': 80,
-  'TomTom': 75,
+  NWS: 90,
+  Xweather: 80,
+  TomTom: 75,
   'New England 511': 70,
-  'Weatherbit': 70,
-  'Weatherstack': 65,
+  Weatherbit: 70,
+  Weatherstack: 65,
   'Visual Crossing': 65,
-  'OpenWeatherMap': 60,
-  'Unknown': 50,
+  OpenWeatherMap: 60,
+  'Weather-Based Prediction': 55,
+  Unknown: 50,
 };
 
-/**
- * Get weather data for a location (needed for temperature/wind calculations)
- */
-async function getWeatherForLocation(lat?: number, lon?: number): Promise<{
-  temperature?: number; // Celsius
-  windSpeed?: number; // m/s
-  humidity?: number;
-  description?: string;
-}> {
-  // Try to fetch weather if coordinates available
-  // For now, return empty - will be enhanced when weather service is available
-  // In practice, this should call unifiedWeatherService
-  return {};
+const WEIGHTS = {
+  baseCondition: 32,
+  temperature: 18,
+  dataFreshness: 10,
+  severity: 12,
+  sourceReliability: 8,
+  roadType: 6,
+  timeOfDay: 6,
+  combinationEffects: 8,
+} as const;
+
+function clamp(n: number, lo = 0, hi = 100): number {
+  return Math.max(lo, Math.min(hi, n));
+}
+
+function frictionLabel(mu: number): string {
+  if (mu < 0.4) return 'extremely slippery';
+  if (mu < 0.55) return 'very slippery';
+  if (mu < 0.65) return 'slippery';
+  if (mu < 0.75) return 'reduced grip';
+  return 'good grip';
 }
 
 /**
- * Calculate detailed road safety score based on multiple factors
+ * Calculate detailed road safety score (true 8-factor weighted average)
  */
 export async function calculateDetailedRoadSafetyScore(
   condition: RoadCondition,
@@ -75,423 +98,528 @@ export async function calculateDetailedRoadSafetyScore(
     temperature?: number; // Fahrenheit
     windSpeed?: number; // mph
     humidity?: number;
+    visibilityMiles?: number;
   }
 ): Promise<DetailedRoadSafetyScore> {
-  
-  // Start with base score of 100 (perfect conditions)
-  let totalScore = 100;
-  const factors: DetailedRoadSafetyScore['factors'] = {
-    baseCondition: { score: 100, weight: 40, description: '' },
-    temperature: { score: 100, weight: 20, description: '' },
-    dataFreshness: { score: 100, weight: 10, description: '' },
-    severity: { score: 100, weight: 15, description: '' },
-    sourceReliability: { score: 100, weight: 5, description: '' },
-    roadType: { score: 100, weight: 5, description: '' },
-    timeOfDay: { score: 100, weight: 3, description: '' },
-    combinationEffects: { score: 100, weight: 2, description: '' },
-  };
+  const insights: string[] = [];
+  const stationLabel =
+    condition.stationName ||
+    condition.locationDescription ||
+    condition.route ||
+    'this road';
 
-  // Prefer pavement temp from VTrans RWIS when present (road surface truth)
-  let tempF = weatherContext?.temperature;
-  const surfaceTemp =
-    condition.pavementTemperature !== undefined
-      ? condition.pavementTemperature
-      : condition.temperature;
-  if (surfaceTemp !== undefined) {
-    // Condition temps from VTrans RWIS are already Fahrenheit
-    if (
-      surfaceTemp < -10 ||
-      (surfaceTemp >= -10 &&
-        surfaceTemp <= 50 &&
-        surfaceTemp !== Math.round(surfaceTemp) &&
-        condition.source !== 'VTrans RWIS')
-    ) {
-      tempF = Math.round(surfaceTemp * (9 / 5) + 32);
-    } else {
-      tempF = surfaceTemp;
-    }
+  // Prefer RWIS pavement temp for surface risk; air from sensor or weather API
+  const pavementTempF = condition.pavementTemperature;
+  let airTempF =
+    condition.temperature !== undefined
+      ? condition.temperature
+      : weatherContext?.temperature;
+
+  // Legacy Celsius guard for non-RWIS sources only
+  if (
+    airTempF !== undefined &&
+    condition.source !== 'VTrans RWIS' &&
+    airTempF < -10
+  ) {
+    airTempF = Math.round(airTempF * (9 / 5) + 32);
   }
+
+  const surfaceTempF =
+    pavementTempF !== undefined ? pavementTempF : airTempF;
   const windMph =
-    weatherContext?.windSpeed ??
-    (condition.windSpeed !== undefined ? condition.windSpeed : undefined);
+    condition.windSpeed ?? weatherContext?.windSpeed ?? undefined;
   const humidity = weatherContext?.humidity;
   const frictionMu = condition.surfaceFriction;
 
-  // FACTOR 1: Base Condition (40% weight) - Most important
-  let baseConditionScore = 100;
-  let baseDescription = '';
-  
+  const dataAgeMs = Date.now() - new Date(condition.timestamp).getTime();
+  const dataAgeMinutes = Math.max(
+    0,
+    Math.floor(dataAgeMs / (60 * 1000))
+  );
+  const dataAgeHours = dataAgeMinutes / 60;
+
+  // Vermont local hour for commute / freeze windows
+  const hour = Number(
+    new Intl.DateTimeFormat('en-US', {
+      hour: 'numeric',
+      hour12: false,
+      timeZone: 'America/New_York',
+    }).format(new Date())
+  );
+  const isNightOrEarlyMorning = hour >= 22 || hour <= 7;
+  const isCommuteWindow = hour >= 4 && hour <= 9;
+  const isDecisionWindow = hour >= 4 && hour <= 6;
+
+  // ——— FACTOR 1: Base surface condition (+ RWIS friction) ———
+  let baseScore = 70;
+  let baseDesc = '';
   switch (condition.condition) {
     case 'closed':
-      baseConditionScore = 5; // Closed roads are extremely dangerous
-      baseDescription = 'Road is closed - do not travel';
+      baseScore = 5;
+      baseDesc = `${stationLabel}: CLOSED — do not travel this segment`;
       break;
-      
     case 'ice':
-      baseConditionScore = 20; // Ice is very dangerous, but severity varies
-      baseDescription = 'Ice conditions reported';
+      baseScore = 18;
+      baseDesc = `${stationLabel}: ICE on pavement`;
       break;
-      
     case 'snow-covered':
-      baseConditionScore = 35; // Snow-covered roads vary by depth and temperature
-      baseDescription = 'Snow-covered roads';
+      baseScore = 32;
+      baseDesc = `${stationLabel}: snow-covered`;
       break;
-      
     case 'wet':
-      baseConditionScore = 60; // Wet roads are moderately dangerous
-      baseDescription = 'Wet road conditions';
+      baseScore = 58;
+      baseDesc = `${stationLabel}: wet pavement`;
       break;
-      
     case 'clear':
-      baseConditionScore = 95; // Clear roads are generally safe
-      baseDescription = 'Clear road conditions';
+      baseScore = 96;
+      baseDesc = `${stationLabel}: clear/dry pavement`;
       break;
-      
-    case 'unknown':
-      baseConditionScore = 50; // Unknown conditions - assume moderate risk
-      baseDescription = 'Road conditions unknown';
-      break;
+    default:
+      baseScore = 48;
+      baseDesc = `${stationLabel}: surface unknown`;
   }
-  
-  // VTrans RWIS surface friction (μ 0–1) adjusts the base road score
+
   if (frictionMu !== undefined) {
-    if (frictionMu < 0.45) {
-      baseConditionScore = Math.min(baseConditionScore, 15);
-      baseDescription += ` — critical low grip (μ=${frictionMu.toFixed(2)})`;
+    if (frictionMu < 0.4) {
+      baseScore = Math.min(baseScore, 12);
+      baseDesc += ` | μ=${frictionMu.toFixed(2)} (${frictionLabel(frictionMu)})`;
+      insights.push(
+        `Critical low grip at ${stationLabel}: friction μ=${frictionMu.toFixed(2)}`
+      );
     } else if (frictionMu < 0.55) {
-      baseConditionScore = Math.min(baseConditionScore, 30);
-      baseDescription += ` — very slippery (μ=${frictionMu.toFixed(2)})`;
+      baseScore = Math.min(baseScore, 28);
+      baseDesc += ` | μ=${frictionMu.toFixed(2)} (${frictionLabel(frictionMu)})`;
+      insights.push(
+        `Very slippery at ${stationLabel}: μ=${frictionMu.toFixed(2)}`
+      );
     } else if (frictionMu < 0.65) {
-      baseConditionScore = Math.min(baseConditionScore, Math.max(35, baseConditionScore - 20));
-      baseDescription += ` — reduced grip (μ=${frictionMu.toFixed(2)})`;
+      baseScore = Math.min(baseScore, Math.max(36, baseScore - 18));
+      baseDesc += ` | μ=${frictionMu.toFixed(2)} (${frictionLabel(frictionMu)})`;
     } else if (frictionMu >= 0.78 && condition.condition === 'clear') {
-      baseConditionScore = Math.max(baseConditionScore, 95);
-      baseDescription += ` — good grip (μ=${frictionMu.toFixed(2)})`;
+      baseScore = Math.max(baseScore, 96);
+      baseDesc += ` | μ=${frictionMu.toFixed(2)} (good grip)`;
     } else {
-      baseDescription += ` — grip μ=${frictionMu.toFixed(2)}`;
+      baseDesc += ` | μ=${frictionMu.toFixed(2)}`;
+    }
+  } else if (condition.source !== 'VTrans RWIS') {
+    baseDesc += ' | no RWIS friction — using condition + weather APIs';
+  }
+
+  // ——— FACTOR 2: Temperature (pavement-first) ———
+  let tempScore = 72;
+  let tempDesc = 'No temperature for this point — moderate assumption';
+  const tempForRisk = surfaceTempF;
+
+  if (tempForRisk !== undefined) {
+    const which =
+      pavementTempF !== undefined ? 'pavement' : 'air';
+    if (tempForRisk <= 15) {
+      tempScore = 12;
+      tempDesc = `${which} ${tempForRisk.toFixed(0)}°F — extreme freeze risk`;
+    } else if (tempForRisk <= 25) {
+      tempScore = 28;
+      tempDesc = `${which} ${tempForRisk.toFixed(0)}°F — high ice formation risk`;
+    } else if (tempForRisk <= 32) {
+      tempScore = 48;
+      tempDesc = `${which} ${tempForRisk.toFixed(0)}°F — at/below freezing`;
+    } else if (tempForRisk <= 35) {
+      tempScore = 68;
+      tempDesc = `${which} ${tempForRisk.toFixed(0)}°F — near freezing`;
+    } else if (tempForRisk <= 40) {
+      tempScore = 84;
+      tempDesc = `${which} ${tempForRisk.toFixed(0)}°F — cold, shaded ice possible`;
+    } else {
+      tempScore = 96;
+      tempDesc = `${which} ${tempForRisk.toFixed(0)}°F — above freezing`;
+    }
+
+    if (
+      pavementTempF !== undefined &&
+      airTempF !== undefined &&
+      Math.abs(pavementTempF - airTempF) >= 5
+    ) {
+      tempDesc += ` (air ${airTempF.toFixed(0)}°F, pavement ${pavementTempF.toFixed(0)}°F)`;
+      if (pavementTempF <= 32 && airTempF > 32) {
+        tempScore = Math.min(tempScore, 40);
+        tempDesc += ' — pavement freezing while air is above 32°F';
+        insights.push(
+          `Pavement colder than air at ${stationLabel}: ${pavementTempF.toFixed(0)}°F vs ${airTempF.toFixed(0)}°F air`
+        );
+      }
+    }
+
+    if (condition.condition === 'wet' && tempForRisk <= 35) {
+      tempScore = Math.min(tempScore, tempForRisk <= 32 ? 30 : 50);
+      tempDesc += ' — wet + cold = freeze risk';
+      insights.push(
+        `Wet pavement near freezing at ${stationLabel} (${tempForRisk.toFixed(0)}°F)`
+      );
+    }
+    if (condition.condition === 'ice' && tempForRisk <= 28) {
+      tempScore = Math.min(tempScore, 15);
+    }
+    if (humidity !== undefined && humidity > 85 && tempForRisk <= 35) {
+      tempScore = Math.max(0, tempScore - 10);
+      tempDesc += ` | humidity ${humidity}%`;
     }
   }
 
-  factors.baseCondition = { score: baseConditionScore, weight: 40, description: baseDescription };
-  totalScore = (totalScore * 0.6) + (baseConditionScore * 0.4);
-
-  // FACTOR 2: Temperature Impact (20% weight) - Critical for ice formation
-  let temperatureScore = 100;
-  let tempDescription = '';
-  
-  if (tempF !== undefined) {
-    if (tempF <= 20) {
- 
-      temperatureScore = 15;
-      tempDescription = `Extremely cold (${tempF}°F) - severe ice formation risk`;
-      
-     
-      if (condition.condition === 'ice') {
-        temperatureScore = 5; 
-        tempDescription += ' - ice conditions exacerbated by extreme cold';
-      }
-    } else if (tempF <= 28) {
-      // Very cold - high ice risk
-      temperatureScore = 30;
-      tempDescription = `Very cold (${tempF}°F) - high ice formation risk`;
-      
-      if (condition.condition === 'ice') {
-        temperatureScore = 10;
-        tempDescription += ' - ice conditions exacerbated by very cold temperatures';
-      } else if (condition.condition === 'wet') {
-        temperatureScore = 25; // Wet at very cold = immediate ice
-        tempDescription += ' - wet roads will freeze instantly';
-      }
-    } else if (tempF <= 32) {
-      // At freezing - moderate ice risk
-      temperatureScore = 50;
-      tempDescription = `At freezing (${tempF}°F) - ice can form rapidly`;
-      
-      if (condition.condition === 'ice') {
-        temperatureScore = 20;
-        tempDescription += ' - active ice formation';
-      } else if (condition.condition === 'wet') {
-        temperatureScore = 35; // Wet at freezing = high refreeze risk
-        tempDescription += ' - wet roads will freeze as temps drop';
-      }
-    } else if (tempF <= 35) {
-      // Near freezing - some ice risk
-      temperatureScore = 70;
-      tempDescription = `Near freezing (${tempF}°F) - monitor for ice formation`;
-      
-      if (condition.condition === 'wet') {
-        temperatureScore = 55; // Wet near freezing = possible refreeze
-        tempDescription += ' - wet roads may refreeze overnight';
-      }
-    } else if (tempF <= 40) {
-      // Cold but above freezing
-      temperatureScore = 85;
-      tempDescription = `Cold (${tempF}°F) - low ice risk in shaded areas`;
-    } else {
-      // Warm - minimal ice risk
-      temperatureScore = 95;
-      tempDescription = `Warm (${tempF}°F) - minimal ice risk`;
+  // ——— FACTOR 3: Data freshness ———
+  let freshnessScore = 100;
+  let freshnessDesc = '';
+  if (dataAgeMinutes <= 15) {
+    freshnessScore = 100;
+    freshnessDesc = `Live (${dataAgeMinutes} min old)`;
+  } else if (dataAgeMinutes <= 45) {
+    freshnessScore = 92;
+    freshnessDesc = `Fresh (${dataAgeMinutes} min old)`;
+  } else if (dataAgeMinutes <= 90) {
+    freshnessScore = 80;
+    freshnessDesc = `Recent (${dataAgeMinutes} min old)`;
+  } else if (dataAgeHours <= 3) {
+    freshnessScore = 60;
+    freshnessDesc = `${dataAgeHours.toFixed(1)} h old — may have changed`;
+    if (condition.condition === 'ice' || condition.condition === 'closed') {
+      freshnessScore = 40;
+      freshnessDesc += ' (stale for ice/closure)';
     }
-    
-    // Humidity adjustment (high humidity + cold = more ice risk)
-    if (humidity && tempF <= 35 && humidity > 80) {
-      temperatureScore = Math.max(0, temperatureScore - 15);
-      tempDescription += ` - high humidity (${humidity}%) increases ice formation risk`;
+  } else if (dataAgeHours <= 8) {
+    freshnessScore = 35;
+    freshnessDesc = `${dataAgeHours.toFixed(0)} h old — outdated`;
+    if (condition.condition === 'ice' || condition.condition === 'closed') {
+      freshnessScore = 20;
     }
   } else {
-    // No temperature data - assume moderate risk
-    temperatureScore = 70;
-    tempDescription = 'Temperature data not available - assume moderate risk';
+    freshnessScore = 15;
+    freshnessDesc = `${dataAgeHours.toFixed(0)} h old — unreliable`;
   }
-  
-  factors.temperature = { score: temperatureScore, weight: 20, description: tempDescription };
-  totalScore = (totalScore * 0.8) + (temperatureScore * 0.2);
 
-  // FACTOR 3: Data Freshness (10% weight) - Stale data is less reliable
-  let dataFreshnessScore = 100;
-  let freshnessDescription = '';
-  
-  const dataAge = Date.now() - new Date(condition.timestamp).getTime();
-  const dataAgeMinutes = Math.floor(dataAge / (60 * 1000));
-  const dataAgeHours = Math.floor(dataAgeMinutes / 60);
-  
-  if (dataAgeMinutes <= 30) {
-    // Very fresh data (within 30 minutes)
-    dataFreshnessScore = 100;
-    freshnessDescription = `Data is fresh (${dataAgeMinutes} minutes old)`;
-  } else if (dataAgeMinutes <= 60) {
-    // Fresh data (within 1 hour)
-    dataFreshnessScore = 90;
-    freshnessDescription = `Data is recent (${dataAgeMinutes} minutes old)`;
-  } else if (dataAgeHours <= 2) {
-    // Moderately fresh (within 2 hours)
-    dataFreshnessScore = 75;
-    freshnessDescription = `Data is ${dataAgeHours} hour(s) old - conditions may have changed`;
-    
-    // Stale data for dangerous conditions is more concerning
-    if (condition.condition === 'ice' || condition.condition === 'closed') {
-      dataFreshnessScore = 50; // Stale ice data is unreliable
-      freshnessDescription += ' - stale data for dangerous conditions is unreliable';
-    }
-  } else if (dataAgeHours <= 6) {
-    // Stale data (2-6 hours)
-    dataFreshnessScore = 50;
-    freshnessDescription = `Data is ${dataAgeHours} hours old - may be outdated`;
-    
-    if (condition.condition === 'ice' || condition.condition === 'closed') {
-      dataFreshnessScore = 25;
-      freshnessDescription += ' - stale data for dangerous conditions is highly unreliable';
-    }
-  } else {
-    // Very stale data (> 6 hours)
-    dataFreshnessScore = 20;
-    freshnessDescription = `Data is ${dataAgeHours} hours old - likely outdated`;
-    
-    // Very stale data for dangerous conditions should downgrade the rating
-    if (condition.condition === 'ice' || condition.condition === 'closed') {
-      dataFreshnessScore = 10;
-      freshnessDescription += ' - very stale data for dangerous conditions';
-    }
-  }
-  
-  factors.dataFreshness = { score: dataFreshnessScore, weight: 10, description: freshnessDescription };
-  totalScore = (totalScore * 0.9) + (dataFreshnessScore * 0.1);
-
-  // FACTOR 4: Severity Level (15% weight) - MAJOR incidents are more dangerous
-  let severityScore = 100;
-  let severityDescription = '';
-  
+  // ——— FACTOR 4: Reported severity ———
+  let severityFactorScore = 85;
+  let severityDesc = 'No explicit severity — inferred from condition';
   if (condition.severity === 'MAJOR') {
-    severityScore = 20;
-    severityDescription = 'MAJOR severity incident - extreme danger';
+    severityFactorScore = 18;
+    severityDesc = 'MAJOR severity';
   } else if (condition.severity === 'MODERATE') {
-    severityScore = 50;
-    severityDescription = 'MODERATE severity - significant danger';
+    severityFactorScore = 48;
+    severityDesc = 'MODERATE severity';
   } else if (condition.severity === 'MINOR') {
-    severityScore = 80;
-    severityDescription = 'MINOR severity - some risk';
-  } else {
-    // No severity specified - use default based on condition
-    if (condition.condition === 'closed' || condition.condition === 'ice') {
-      severityScore = 40; // Assume moderate-high severity for dangerous conditions
-      severityDescription = 'No severity specified - assuming moderate-high risk for dangerous condition';
-    } else {
-      severityScore = 85;
-      severityDescription = 'No severity specified - assuming moderate risk';
+    severityFactorScore = 78;
+    severityDesc = 'MINOR severity';
+  } else if (
+    condition.condition === 'closed' ||
+    condition.condition === 'ice'
+  ) {
+    severityFactorScore = 35;
+    severityDesc = 'Inferred high severity (ice/closure)';
+  }
+
+  // ——— FACTOR 5: Source reliability ———
+  const sourceScore =
+    SOURCE_RELIABILITY[condition.source] ?? SOURCE_RELIABILITY.Unknown;
+  const sourceDesc = `${condition.source} (trust ${sourceScore}/100)`;
+  if (condition.source === 'VTrans RWIS') {
+    insights.push(
+      `Ground truth from VTrans RWIS at ${stationLabel}`
+    );
+  } else if (
+    condition.source === 'NWS' ||
+    condition.source === 'TomTom' ||
+    condition.source === 'Xweather'
+  ) {
+    insights.push(
+      `API layer (${condition.source}) used for ${condition.route || stationLabel}`
+    );
+  }
+
+  // ——— FACTOR 6: Road type / Vermont geography ———
+  let roadTypeScore = 90;
+  let roadTypeDesc = 'Local / secondary road';
+  const route = (condition.route || condition.stationName || '').toLowerCase();
+  const loc = (condition.locationDescription || '').toLowerCase();
+  const combined = `${route} ${loc}`;
+
+  if (
+    combined.includes('i-89') ||
+    combined.includes('i-91') ||
+    combined.includes('i-93') ||
+    combined.includes('interstate')
+  ) {
+    // Interstates: high consequence when bad; slightly safer baseline when clear
+    roadTypeScore = condition.condition === 'clear' ? 92 : 78;
+    roadTypeDesc = 'Interstate — high volume / high consequence when hazardous';
+  } else if (combined.includes('us-') || combined.includes('us ')) {
+    roadTypeScore = condition.condition === 'clear' ? 90 : 80;
+    roadTypeDesc = 'US route — significant traffic';
+  } else if (combined.includes('vt-') || combined.includes('vt ')) {
+    roadTypeScore = condition.condition === 'clear' ? 88 : 82;
+    roadTypeDesc = 'Vermont state route';
+  }
+
+  if (
+    combined.includes('bridge') ||
+    combined.includes('gap') ||
+    combined.includes('mountain') ||
+    combined.includes('notch') ||
+    combined.includes('pass')
+  ) {
+    roadTypeScore = Math.max(55, roadTypeScore - 15);
+    roadTypeDesc += ' — bridge/mountain exposure (ice/wind prone)';
+    insights.push(
+      `Elevated exposure (bridge/mountain/pass) near ${stationLabel}`
+    );
+  }
+
+  // ——— FACTOR 7: Time of day (VT commute / freeze) ———
+  let timeScore = 95;
+  let timeDesc = `Vermont ${hour}:00 ET — normal risk window`;
+  if (isDecisionWindow && surfaceTempF !== undefined && surfaceTempF <= 35) {
+    timeScore = 55;
+    timeDesc = `4–6 AM decision window + cold (${surfaceTempF.toFixed(0)}°F) — school/bus critical`;
+  } else if (isCommuteWindow && (condition.condition === 'ice' || condition.condition === 'snow-covered' || (condition.condition === 'wet' && surfaceTempF !== undefined && surfaceTempF <= 35))) {
+    timeScore = 60;
+    timeDesc = `Morning commute (${hour}:00 ET) + hazardous surface`;
+  } else if (isNightOrEarlyMorning && surfaceTempF !== undefined && surfaceTempF <= 35) {
+    timeScore = 70;
+    timeDesc = `Night/early morning (${hour}:00 ET) — refreeze risk`;
+    if (condition.condition === 'wet') {
+      timeScore = 55;
+      timeDesc += ' on wet pavement';
     }
   }
-  
-  factors.severity = { score: severityScore, weight: 15, description: severityDescription };
-  totalScore = (totalScore * 0.85) + (severityScore * 0.15);
 
-  // FACTOR 5: Source Reliability (5% weight) - Official sources are more trustworthy
-  const sourceReliabilityScore = SOURCE_RELIABILITY[condition.source] || SOURCE_RELIABILITY['Unknown'];
-  const sourceDescription = `Source: ${condition.source} (reliability: ${sourceReliabilityScore}%)`;
-  
-  factors.sourceReliability = { 
-    score: sourceReliabilityScore, 
-    weight: 5, 
-    description: sourceDescription 
-  };
-  totalScore = (totalScore * 0.95) + (sourceReliabilityScore * 0.05);
+  // ——— FACTOR 8: Combination effects (multiplicative hazards) ———
+  let comboScore = 100;
+  let comboDesc = 'No stacked hazard multipliers';
+  const wind = windMph ?? 0;
 
-  // FACTOR 6: Road Type/Importance (5% weight) - Major highways more important
-  let roadTypeScore = 100;
-  let roadTypeDescription = '';
-  
-  const routeName = (condition.route || '').toLowerCase();
-  if (routeName.includes('i-89') || routeName.includes('i-91') || routeName.includes('interstate')) {
-    roadTypeScore = 85; // Interstate highways - slight penalty for dangerous conditions (higher impact)
-    roadTypeDescription = 'Interstate highway - high traffic volume increases impact';
-  } else if (routeName.includes('us route') || routeName.includes('us-')) {
-    roadTypeScore = 88;
-    roadTypeDescription = 'US Route - significant traffic volume';
-  } else if (routeName.includes('vt route') || routeName.includes('vt-') || routeName.includes('route')) {
-    roadTypeScore = 92;
-    roadTypeDescription = 'State route - moderate traffic volume';
-  } else {
-    roadTypeScore = 95; // Local roads - lower impact
-    roadTypeDescription = 'Local road - lower traffic volume';
-  }
-  
-  factors.roadType = { score: roadTypeScore, weight: 5, description: roadTypeDescription };
-  totalScore = (totalScore * 0.95) + (roadTypeScore * 0.05);
-
-  // FACTOR 7: Time of Day (3% weight) - Night/early morning increases ice risk
-  let timeOfDayScore = 100;
-  let timeDescription = '';
-  
-  const hour = new Date().getHours();
-  const isNightOrEarlyMorning = hour >= 22 || hour <= 7;
-  
-  if (isNightOrEarlyMorning && tempF !== undefined && tempF <= 35) {
-    timeOfDayScore = 80; // Night/early morning + cold = increased ice risk
-    timeDescription = `Night/early morning (${hour}:00) - lower road temperatures increase ice risk`;
-    
-    if (condition.condition === 'wet' && tempF <= 35) {
-      timeOfDayScore = 60; // Wet at night in cold = high refreeze risk
-      timeDescription += ' - wet roads will refreeze during night hours';
-    }
-  } else {
-    timeOfDayScore = 100;
-    timeDescription = `Daytime (${hour}:00) - normal risk period`;
-  }
-  
-  factors.timeOfDay = { score: timeOfDayScore, weight: 3, description: timeDescription };
-  totalScore = (totalScore * 0.97) + (timeOfDayScore * 0.03);
-
-  // FACTOR 8: Combination Effects (2% weight) - Multiple factors together
-  let combinationScore = 100;
-  let combinationDescription = 'No significant combination effects';
-  
-  // Ice + extreme cold = catastrophic
-  if (condition.condition === 'ice' && tempF !== undefined && tempF <= 20) {
-    combinationScore = 0;
-    combinationDescription = 'ICE + EXTREME COLD: Catastrophic combination - instant ice formation';
-  }
-  // Ice + high wind = more dangerous
-  else if (condition.condition === 'ice' && windMph !== undefined && windMph >= 30) {
-    combinationScore = 30;
-    combinationDescription = 'ICE + STRONG WIND: Wind reduces traction further';
-  }
-  // Snow + high wind = whiteout/blowing snow
-  else if (condition.condition === 'snow-covered' && windMph !== undefined && windMph >= 30) {
-    combinationScore = 40;
-    combinationDescription = 'SNOW + STRONG WIND: Blowing snow reduces visibility';
-  }
-  // Wet + near freezing + night = refreeze risk
-  else if (condition.condition === 'wet' && tempF !== undefined && tempF <= 35 && isNightOrEarlyMorning) {
-    combinationScore = 50;
-    combinationDescription = 'WET + COLD + NIGHT: High refreeze risk';
-  }
-  // Closed + ice = extreme danger
-  else if (condition.condition === 'closed' && condition.warning?.toLowerCase().includes('ice')) {
-    combinationScore = 5;
-    combinationDescription = 'CLOSED + ICE: Road closed due to ice - extreme danger';
-  }
-  // Low RWIS friction + wet/cold pavement
-  else if (
+  if (condition.condition === 'ice' && tempForRisk !== undefined && tempForRisk <= 20) {
+    comboScore = 5;
+    comboDesc = 'ICE + EXTREME COLD stacked';
+  } else if (condition.condition === 'ice' && wind >= 25) {
+    comboScore = 25;
+    comboDesc = `ICE + wind ${wind.toFixed(0)} mph`;
+  } else if (condition.condition === 'snow-covered' && wind >= 30) {
+    comboScore = 35;
+    comboDesc = `SNOW + blowing wind ${wind.toFixed(0)} mph`;
+  } else if (
+    condition.condition === 'wet' &&
+    tempForRisk !== undefined &&
+    tempForRisk <= 35 &&
+    isNightOrEarlyMorning
+  ) {
+    comboScore = 42;
+    comboDesc = 'WET + COLD + NIGHT refreeze stack';
+  } else if (
     frictionMu !== undefined &&
     frictionMu < 0.6 &&
     (condition.condition === 'wet' || condition.condition === 'ice')
   ) {
-    combinationScore = Math.min(combinationScore, frictionMu < 0.5 ? 25 : 45);
-    combinationDescription = `LOW FRICTION (μ=${frictionMu.toFixed(2)}) + ${condition.condition.toUpperCase()}: Vermont RWIS reports poor pavement grip`;
+    comboScore = frictionMu < 0.5 ? 22 : 40;
+    comboDesc = `LOW FRICTION μ=${frictionMu.toFixed(2)} + ${condition.condition}`;
+  } else if (wind >= 40) {
+    comboScore = 55;
+    comboDesc = `High wind ${wind.toFixed(0)} mph — vehicle control / drifting risk`;
+    insights.push(`High wind ${wind.toFixed(0)} mph at ${stationLabel}`);
+  } else if (
+    condition.condition === 'closed' &&
+    (condition.warning || '').toLowerCase().includes('ice')
+  ) {
+    comboScore = 8;
+    comboDesc = 'CLOSED due to ice';
   }
-  
-  factors.combinationEffects = { score: combinationScore, weight: 2, description: combinationDescription };
-  totalScore = (totalScore * 0.98) + (combinationScore * 0.02);
 
-  // Apply data freshness penalty for dangerous conditions
-  // If data is stale for a dangerous condition, reduce score further
-  if ((condition.condition === 'ice' || condition.condition === 'closed') && dataAgeHours > 2) {
-    // Reduce score by 10-20 points for stale dangerous data
-    const stalePenalty = Math.min(20, dataAgeHours * 5);
-    totalScore = Math.max(0, totalScore - stalePenalty);
+  if (wind >= 20 && wind < 40 && condition.condition !== 'clear') {
+    insights.push(`Wind ${wind.toFixed(0)} mph with ${condition.condition} surface`);
   }
 
-  // Ensure score is within bounds
-  totalScore = Math.max(0, Math.min(100, totalScore));
+  const factors: DetailedRoadSafetyScore['factors'] = {
+    baseCondition: {
+      score: clamp(baseScore),
+      weight: WEIGHTS.baseCondition,
+      description: baseDesc,
+      label: 'Pavement / surface',
+    },
+    temperature: {
+      score: clamp(tempScore),
+      weight: WEIGHTS.temperature,
+      description: tempDesc,
+      label: 'Temperature',
+    },
+    dataFreshness: {
+      score: clamp(freshnessScore),
+      weight: WEIGHTS.dataFreshness,
+      description: freshnessDesc,
+      label: 'Data freshness',
+    },
+    severity: {
+      score: clamp(severityFactorScore),
+      weight: WEIGHTS.severity,
+      description: severityDesc,
+      label: 'Severity',
+    },
+    sourceReliability: {
+      score: clamp(sourceScore),
+      weight: WEIGHTS.sourceReliability,
+      description: sourceDesc,
+      label: 'Source trust',
+    },
+    roadType: {
+      score: clamp(roadTypeScore),
+      weight: WEIGHTS.roadType,
+      description: roadTypeDesc,
+      label: 'Road / terrain',
+    },
+    timeOfDay: {
+      score: clamp(timeScore),
+      weight: WEIGHTS.timeOfDay,
+      description: timeDesc,
+      label: 'Time of day',
+    },
+    combinationEffects: {
+      score: clamp(comboScore),
+      weight: WEIGHTS.combinationEffects,
+      description: comboDesc,
+      label: 'Stacked hazards',
+    },
+  };
 
-  // Determine safety level and severity
-  let safetyLevel: 'excellent' | 'good' | 'caution' | 'poor' | 'hazardous';
-  let severity: 'low' | 'moderate' | 'high' | 'extreme';
-  
-  if (totalScore >= 80) {
+  // True weighted average
+  const weightSum = Object.values(WEIGHTS).reduce((a, b) => a + b, 0);
+  let totalScore =
+    (factors.baseCondition.score * WEIGHTS.baseCondition +
+      factors.temperature.score * WEIGHTS.temperature +
+      factors.dataFreshness.score * WEIGHTS.dataFreshness +
+      factors.severity.score * WEIGHTS.severity +
+      factors.sourceReliability.score * WEIGHTS.sourceReliability +
+      factors.roadType.score * WEIGHTS.roadType +
+      factors.timeOfDay.score * WEIGHTS.timeOfDay +
+      factors.combinationEffects.score * WEIGHTS.combinationEffects) /
+    weightSum;
+
+  // Extra hard caps for must-avoid situations
+  if (condition.condition === 'closed') {
+    totalScore = Math.min(totalScore, 15);
+  }
+  if (condition.condition === 'ice' && (frictionMu === undefined || frictionMu < 0.55)) {
+    totalScore = Math.min(totalScore, 35);
+  }
+  if (
+    (condition.condition === 'ice' || condition.condition === 'closed') &&
+    dataAgeHours > 3
+  ) {
+    totalScore = Math.max(0, totalScore - Math.min(15, dataAgeHours * 2));
+  }
+
+  totalScore = clamp(totalScore);
+
+  let safetyLevel: DetailedRoadSafetyScore['safetyLevel'];
+  let severityOut: DetailedRoadSafetyScore['severity'];
+  if (totalScore >= 85) {
     safetyLevel = 'excellent';
-    severity = 'low';
-  } else if (totalScore >= 60) {
+    severityOut = 'low';
+  } else if (totalScore >= 70) {
     safetyLevel = 'good';
-    severity = 'low';
-  } else if (totalScore >= 40) {
+    severityOut = 'low';
+  } else if (totalScore >= 50) {
     safetyLevel = 'caution';
-    severity = 'moderate';
-  } else if (totalScore >= 20) {
+    severityOut = 'moderate';
+  } else if (totalScore >= 30) {
     safetyLevel = 'poor';
-    severity = 'high';
+    severityOut = 'high';
   } else {
     safetyLevel = 'hazardous';
-    severity = 'extreme';
+    severityOut = 'extreme';
   }
 
-  // Calculate confidence based on data completeness and freshness
-  let confidence = 85; // Default confidence
-  
-  // Increase confidence if we have temperature data
-  if (tempF !== undefined) confidence += 5;
-  
-  // Decrease confidence if data is stale
-  if (dataAgeHours > 2) confidence -= 15;
-  else if (dataAgeHours > 1) confidence -= 10;
-  
-  // Decrease confidence for unknown conditions
-  if (condition.condition === 'unknown') confidence -= 10;
-  
-  // Increase confidence for official sources
-  if (condition.source.includes('VTrans') || condition.source === 'NWS') confidence += 5;
-  
-  confidence = Math.max(50, Math.min(100, confidence));
+  // Confidence: more sensors/metrics + freshness + official source
+  let confidence = 62;
+  if (frictionMu !== undefined) confidence += 12;
+  if (pavementTempF !== undefined) confidence += 8;
+  if (airTempF !== undefined) confidence += 5;
+  if (condition.source.includes('VTrans') || condition.source === 'NWS') {
+    confidence += 8;
+  }
+  if (dataAgeMinutes <= 30) confidence += 6;
+  else if (dataAgeHours > 3) confidence -= 18;
+  if (condition.condition === 'unknown') confidence -= 12;
+  if (!frictionMu && condition.source !== 'VTrans RWIS') confidence -= 5;
+  confidence = clamp(confidence, 40, 99);
 
-  // Build explanation
-  const explanation = `Safety score: ${Math.round(totalScore)}/100. ` +
-    `${baseDescription}. ${tempDescription}. ${freshnessDescription}. ` +
-    `${severityDescription}. ${sourceDescription}. ${combinationDescription}`;
+  const factorList = Object.values(factors);
+  const topRisks = [...factorList]
+    .sort((a, b) => a.score - b.score)
+    .slice(0, 3)
+    .map((f) => ({
+      label: f.label,
+      score: Math.round(f.score),
+      description: f.description,
+    }));
+
+  if (insights.length === 0) {
+    insights.push(
+      `${stationLabel}: ${condition.condition} — score ${Math.round(totalScore)}/100 (${safetyLevel})`
+    );
+  }
+
+  const headline = `${condition.route || stationLabel}: ${Math.round(totalScore)}/100 ${safetyLevel.toUpperCase()} — ${condition.condition}${
+    frictionMu !== undefined ? ` · μ=${frictionMu.toFixed(2)}` : ''
+  }${
+    surfaceTempF !== undefined ? ` · ${surfaceTempF.toFixed(0)}°F surface` : ''
+  }`;
+
+  const explanation = [
+    headline,
+    baseDesc,
+    tempDesc,
+    freshnessDesc,
+    severityDesc,
+    sourceDesc,
+    roadTypeDesc,
+    timeDesc,
+    comboDesc,
+  ].join(' · ');
 
   return {
     safetyScore: Math.round(totalScore),
     safetyLevel,
-    severity,
+    severity: severityOut,
     factors,
+    topRisks,
+    actionableInsights: insights.slice(0, 6),
+    headline,
     explanation,
-    confidence,
+    confidence: Math.round(confidence),
+    metrics: {
+      airTempF: airTempF !== undefined ? Math.round(airTempF) : undefined,
+      pavementTempF:
+        pavementTempF !== undefined ? Math.round(pavementTempF) : undefined,
+      frictionMu,
+      windMph: windMph !== undefined ? Math.round(windMph) : undefined,
+      dataAgeMinutes,
+      stationName: condition.stationName,
+      route: condition.route || stationLabel,
+      source: condition.source,
+    },
   };
 }
 
-
-
-
-
-
-
-
-
+/** Compact multi-line block for Maple / AI prompts */
+export function formatDetailedScoreForAI(score: DetailedRoadSafetyScore): string {
+  let out = `${score.headline}\n`;
+  out += `Confidence ${score.confidence}% · Severity ${score.severity}\n`;
+  out += '8-factor breakdown (higher = safer):\n';
+  Object.values(score.factors).forEach((f) => {
+    out += `  • ${f.label} (w=${f.weight}): ${Math.round(f.score)}/100 — ${f.description}\n`;
+  });
+  if (score.topRisks.length) {
+    out += 'Top risks:\n';
+    score.topRisks.forEach((r, i) => {
+      out += `  ${i + 1}. ${r.label} (${r.score}/100): ${r.description}\n`;
+    });
+  }
+  score.actionableInsights.forEach((i) => {
+    out += `→ ${i}\n`;
+  });
+  return out;
+}
