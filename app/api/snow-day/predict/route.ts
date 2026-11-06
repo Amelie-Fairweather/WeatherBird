@@ -9,6 +9,25 @@ function serializeStudentRoutes(pred: SnowDayPrediction) {
     summary: sr.summary,
     passable: sr.passable,
     routeHazardScore: sr.routeHazardScore,
+    averageHazard: sr.averageHazard,
+    decisionRoad: sr.decisionRoad
+      ? {
+          name: sr.decisionRoad.name,
+          hazard: sr.decisionRoad.hazard,
+          condition: sr.decisionRoad.condition,
+          frictionMu: sr.decisionRoad.frictionMu,
+          pavementTempF: sr.decisionRoad.pavementTempF,
+        }
+      : undefined,
+    badRoads: (sr.badRoads || []).map((r) => ({
+      name: r.name,
+      reason: r.reason,
+      hazard: r.hazard,
+      condition: r.condition,
+      distanceMiles: r.distanceMiles,
+      surfaceFriction: r.surfaceFriction,
+      pavementTemperature: r.pavementTemperature,
+    })),
     highSchools: sr.highSchools.map((h) => ({
       name: h.name,
       city: h.city,

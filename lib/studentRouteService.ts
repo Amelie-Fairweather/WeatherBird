@@ -15,6 +15,10 @@ import {
   VERMONT_HIGH_SCHOOLS,
   type HighSchoolCampus,
 } from './vermontHighSchools';
+import {
+  estimateCorridorHazard,
+  type CalibrationFeatures,
+} from './training/snowDayCalibration';
 
 export type { HighSchoolCampus };
 export { VERMONT_HIGH_SCHOOLS };
@@ -28,6 +32,29 @@ export interface StudentRouteSensor {
   surfaceFriction?: number;
   temperature?: number;
   onNamedCorridor: boolean;
+  /** Bus corridor this reading belongs to, when the station names one */
+  matchedCorridor?: string;
+}
+
+export interface BadRoad {
+  name: string;
+  reason: string;
+  hazard: number;
+  condition: string;
+  distanceMiles: number;
+  surfaceFriction?: number;
+  pavementTemperature?: number;
+}
+
+/** The bus road that sets the call. Same hazard scale as the labeled Vermont snow days. */
+export interface DecisionRoad {
+  name: string;
+  hazard: number;
+  condition: string;
+  surfaceCondition: string;
+  frictionMu: number;
+  pavementTempF: number;
+  frictionWasMeasured: boolean;
 }
 
 export interface StudentRouteAssessment {
@@ -39,7 +66,13 @@ export interface StudentRouteAssessment {
     approachCorridors: string[];
   }>;
   corridorSensors: StudentRouteSensor[];
-  /** 0–100: higher = more unsafe for student/bus travel */
+  /** Roads whose own reading is closed, icy, snow-covered, or low-grip */
+  badRoads: BadRoad[];
+  /** Worst bus road, on the same 0–100 scale as past snow-day calls */
+  decisionRoad?: DecisionRoad;
+  /** Average training hazard of the bus roads that had a reading */
+  averageHazard: number;
+  /** 0–100: higher = more unsafe for student/bus travel. This is the worst bus road. */
   routeHazardScore: number;
   passable: boolean;
   summary: string;
@@ -52,22 +85,122 @@ const CORRIDOR_RADIUS_MILES = 15;
 const NAMED_CORRIDOR_BONUS_MILES = 18;
 
 function normalize(s: string): string {
-  return s.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+  return s
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim()
+    .replace(/\brd\b/g, 'road')
+    .replace(/\bst\b/g, 'street')
+    .replace(/\bave\b/g, 'avenue')
+    .replace(/\bdr\b/g, 'drive')
+    .replace(/\bln\b/g, 'lane')
+    .replace(/\bhwy\b/g, 'highway')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/** Whole-phrase match so VT-7 does not hit VT-73, and "Main St" still hits "Main Street". */
+function phraseHit(hay: string, needle: string): boolean {
+  if (!needle) return false;
+  const escaped = needle.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`(?:^|\\s)${escaped}(?:\\s|$)`).test(hay);
+}
+
+function corridorHit(routeOrStation: string, corridor: string): boolean {
+  const hay = normalize(routeOrStation);
+  const needle = normalize(corridor);
+  if (!needle) return false;
+  if (phraseHit(hay, needle)) return true;
+  const route = needle.match(/^(us|vt|i)\s+(\d+[a-z]?)$/);
+  if (!route) return false;
+  const [, kind, num] = route;
+  if (phraseHit(hay, `${kind} ${num}`)) return true;
+  if (kind === 'vt' && phraseHit(hay, `route ${num}`)) return true;
+  return false;
 }
 
 function corridorMatches(routeOrStation: string, corridors: string[]): boolean {
-  const hay = normalize(routeOrStation);
-  return corridors.some((c) => {
-    const needle = normalize(c);
-    if (!needle) return false;
-    // Match "US-7", "US 7", "Route 7", "VT-116", etc.
-    if (hay.includes(needle)) return true;
-    const digits = needle.replace(/[^0-9]/g, '');
-    if (digits && (hay.includes(`us ${digits}`) || hay.includes(`vt ${digits}`) || hay.includes(`route ${digits}`))) {
-      return true;
-    }
-    return false;
-  });
+  return corridors.some((c) => corridorHit(routeOrStation, c));
+}
+
+/** Longest matching bus-road name, so "Shelburne Road" wins over "US-7" on the same station. */
+function bestCorridorName(routeOrStation: string, corridors: string[]): string | undefined {
+  const hits = corridors.filter((c) => corridorHit(routeOrStation, c));
+  if (hits.length === 0) return undefined;
+  return hits.sort((a, b) => normalize(b).length - normalize(a).length)[0];
+}
+
+function describeRoad(s: StudentRouteSensor): string {
+  const bits = [s.condition || 'unknown'];
+  if (s.surfaceFriction !== undefined) bits.push(`μ=${s.surfaceFriction.toFixed(2)}`);
+  if (s.pavementTemperature !== undefined) bits.push(`pavement ${Math.round(s.pavementTemperature)}°F`);
+  bits.push(`${s.distanceMiles} mi from campus`);
+  return bits.join(', ');
+}
+
+function roadIsBad(s: StudentRouteSensor, hazard: number): boolean {
+  const cond = (s.condition || '').toLowerCase();
+  if (cond === 'closed' || cond === 'ice' || cond === 'snow-covered') return true;
+  if (s.surfaceFriction !== undefined && s.surfaceFriction < 0.4) return true;
+  return hazard >= 45;
+}
+
+/** Map a live VTrans condition onto the surface words the labeled snow days used. */
+function trainingSurface(condition: string): string {
+  const c = (condition || '').toLowerCase();
+  if (c.includes('ice')) return 'Icy / Black Ice';
+  if (c === 'closed') return 'Snow Covered';
+  if (c.includes('snow')) return 'Snow Covered';
+  if (c === 'wet') return 'Wet / Treated';
+  if (c === 'clear') return 'Dry / Clear';
+  return 'unknown';
+}
+
+/**
+ * Friction for the historical model. A measured μ is used as-is.
+ * Ice or a closure with no μ uses 0.22, the band that produced past ice closes.
+ * Snow cover with no μ uses 0.40, the delay band, so missing data does not invent a close.
+ */
+function frictionForTraining(s: StudentRouteSensor): { mu: number; measured: boolean } {
+  if (s.surfaceFriction != null && Number.isFinite(s.surfaceFriction)) {
+    return { mu: s.surfaceFriction, measured: true };
+  }
+  const cond = (s.condition || '').toLowerCase();
+  if (cond === 'ice' || cond === 'closed') return { mu: 0.22, measured: false };
+  if (cond === 'snow-covered') return { mu: 0.4, measured: false };
+  return { mu: 0.65, measured: false };
+}
+
+function trainingHazardFor(s: StudentRouteSensor): {
+  hazard: number;
+  surfaceCondition: string;
+  frictionMu: number;
+  pavementTempF: number;
+  frictionWasMeasured: boolean;
+} {
+  const friction = frictionForTraining(s);
+  const surfaceCondition = trainingSurface(s.condition);
+  const pavementTempF = s.pavementTemperature ?? s.temperature ?? 32;
+  const features: CalibrationFeatures = {
+    snowfallInches: 0,
+    tempF: s.temperature ?? pavementTempF,
+    windMph: 0,
+    windChillF: s.temperature ?? pavementTempF,
+    iceInches: 0,
+    freezingRain: false,
+    timingWindow: '',
+    conditionText: '',
+    pavementTempF,
+    surfaceCondition,
+    frictionMu: friction.mu,
+  };
+  return {
+    hazard: estimateCorridorHazard(features),
+    surfaceCondition,
+    frictionMu: friction.mu,
+    pavementTempF,
+    frictionWasMeasured: friction.measured,
+  };
 }
 
 export interface StudentRouteOverrides {
@@ -250,38 +383,6 @@ export async function resolveHighSchoolsForDistrict(
   return [];
 }
 
-function scoreSensorHazard(s: StudentRouteSensor): number {
-  let score = 0;
-  const cond = (s.condition || '').toLowerCase();
-
-  if (cond === 'closed') score += 40;
-  else if (cond === 'ice') score += 35;
-  else if (cond === 'snow-covered') score += 28;
-  else if (cond === 'wet') score += 8;
-  else if (cond === 'clear') score -= 4;
-
-  if (s.surfaceFriction !== undefined) {
-    if (s.surfaceFriction < 0.3) score += 32;
-    else if (s.surfaceFriction < 0.4) score += 22;
-    else if (s.surfaceFriction < 0.5) score += 12;
-    else if (s.surfaceFriction >= 0.65) score -= 4;
-  }
-
-  if (s.pavementTemperature !== undefined) {
-    if (s.pavementTemperature <= 28) score += 14;
-    else if (s.pavementTemperature <= 32) score += 10;
-    else if (s.pavementTemperature <= 35 && (cond === 'wet' || cond === 'snow-covered')) score += 12;
-  }
-
-  // Named student corridors matter more than distant generic sensors
-  if (s.onNamedCorridor) score = Math.round(score * 1.35);
-  // Closer to campus = more weight
-  if (s.distanceMiles <= 5) score = Math.round(score * 1.2);
-  else if (s.distanceMiles <= 10) score = Math.round(score * 1.1);
-
-  return score;
-}
-
 /**
  * Assess VTrans RWIS pavement/surface conditions on routes students take to district high schools.
  */
@@ -296,7 +397,7 @@ export async function assessStudentRoutes(
   const highSchools = await resolveHighSchoolsForDistrict(district, overrides);
   const factors: string[] = [];
   factors.push(
-    'Method: resolve district high school(s) → main morning corridors into campus → score pavement with VTrans RWIS (μ, pavement temp, surface) + sky/weather APIs'
+    'Method: resolve the high school → check every priority bus route before the call → score pavement with VTrans RWIS (μ, pavement temp, surface) + sky/weather APIs'
   );
 
   if (overrides?.priorityCorridors && overrides.priorityCorridors.length > 0) {
@@ -309,6 +410,8 @@ export async function assessStudentRoutes(
     return {
       highSchools: [],
       corridorSensors: [],
+      badRoads: [],
+      averageHazard: 0,
       routeHazardScore: 0,
       passable: true,
       summary:
@@ -323,8 +426,14 @@ export async function assessStudentRoutes(
   }
 
   for (const hs of highSchools) {
+    const corridors = [...new Set(hs.approachCorridors.map((c) => c.trim()).filter(Boolean))];
+    const snowSensitive = new Set(
+      (hs.snowSensitiveCorridors || []).map((c) => normalize(c))
+    );
     factors.push(
-      `School in scope: ${hs.name}${hs.zip ? ` (${hs.zip})` : ''} — main morning corridors: ${hs.approachCorridors.join(', ')}`
+      `Priority bus routes checked before the ${hs.name} prediction (${corridors.length}): ${corridors
+        .map((c) => (snowSensitive.has(normalize(c)) ? `${c} [snow-sensitive]` : c))
+        .join(', ')}`
     );
   }
 
@@ -335,10 +444,9 @@ export async function assessStudentRoutes(
     for (const c of vtrans) {
       if (c.latitude == null || c.longitude == null) continue;
       const distanceMiles = haversineMiles(hs.latitude, hs.longitude, c.latitude, c.longitude);
-      const onNamedCorridor = corridorMatches(
-        `${c.route || ''} ${c.stationName || ''}`,
-        hs.approachCorridors
-      );
+      const stationText = `${c.route || ''} ${c.stationName || ''}`;
+      const matchedCorridor = bestCorridorName(stationText, hs.approachCorridors);
+      const onNamedCorridor = matchedCorridor != null;
 
       const withinRadius =
         distanceMiles <= CORRIDOR_RADIUS_MILES ||
@@ -357,6 +465,7 @@ export async function assessStudentRoutes(
         surfaceFriction: c.surfaceFriction,
         temperature: c.temperature,
         onNamedCorridor,
+        matchedCorridor,
       };
 
       // Keep closer / corridor-matching sensor
@@ -390,6 +499,8 @@ export async function assessStudentRoutes(
         approachCorridors: h.approachCorridors,
       })),
       corridorSensors: [],
+      badRoads: [],
+      averageHazard: 0,
       routeHazardScore: 0,
       passable: true,
       summary: `Resolved ${highSchools.map((h) => h.name).join(', ')} but no live VTrans pavement sensors on approach corridors.`,
@@ -399,12 +510,68 @@ export async function assessStudentRoutes(
     };
   }
 
-  // Aggregate hazard from corridor sensors (worst-of + average of top hazards)
-  const hazards = corridorSensors.map(scoreSensorHazard).sort((a, b) => b - a);
-  const top = hazards.slice(0, 5);
-  const avgTop = top.reduce((s, n) => s + n, 0) / top.length;
-  const worst = top[0] || 0;
-  const routeHazardScore = Math.min(100, Math.round(worst * 0.55 + avgTop * 0.45));
+  // One reading per road, scored on the same scale as the labeled snow days.
+  const readingByRoad = new Map<
+    string,
+    {
+      sensor: StudentRouteSensor;
+      hazard: number;
+      surfaceCondition: string;
+      frictionMu: number;
+      pavementTempF: number;
+      frictionWasMeasured: boolean;
+    }
+  >();
+  for (const sensor of corridorSensors) {
+    const trained = trainingHazardFor(sensor);
+    const roadName = sensor.matchedCorridor || sensor.route || sensor.stationName;
+    const existing = readingByRoad.get(roadName);
+    if (!existing || trained.hazard > existing.hazard) {
+      readingByRoad.set(roadName, { sensor, ...trained });
+    }
+  }
+  const readings = Array.from(readingByRoad.entries())
+    .map(([name, reading]) => ({ name, ...reading }))
+    .sort((a, b) => b.hazard - a.hazard);
+
+  // Past calls followed the worst bus road, not the average of every clear station nearby.
+  const named = readings.filter((r) => r.sensor.onNamedCorridor);
+  const severeOffList = readings.filter(
+    (r) => !r.sensor.onNamedCorridor && roadIsBad(r.sensor, r.hazard)
+  );
+  const decisionPool = named.length > 0 ? [...named, ...severeOffList] : readings;
+  decisionPool.sort((a, b) => b.hazard - a.hazard);
+  const decision = decisionPool[0];
+  const averagePool = named.length > 0 ? named : readings;
+  const averageHazard = Math.round(
+    averagePool.reduce((s, r) => s + r.hazard, 0) / Math.max(1, averagePool.length)
+  );
+  const routeHazardScore = decision?.hazard ?? 0;
+  const decisionRoad: DecisionRoad | undefined = decision
+    ? {
+        name: decision.name,
+        hazard: decision.hazard,
+        condition: decision.sensor.condition,
+        surfaceCondition: decision.surfaceCondition,
+        frictionMu: decision.frictionMu,
+        pavementTempF: decision.pavementTempF,
+        frictionWasMeasured: decision.frictionWasMeasured,
+      }
+    : undefined;
+
+  const badRoads: BadRoad[] = readings
+    .filter((r) => roadIsBad(r.sensor, r.hazard))
+    .map((r) => ({
+      name: r.name,
+      reason: `${describeRoad(r.sensor)}${
+        r.frictionWasMeasured ? '' : `, μ=${r.frictionMu.toFixed(2)} assumed from past ${r.sensor.condition} calls`
+      }`,
+      hazard: r.hazard,
+      condition: r.sensor.condition,
+      distanceMiles: r.sensor.distanceMiles,
+      surfaceFriction: r.sensor.surfaceFriction ?? r.frictionMu,
+      pavementTemperature: r.sensor.pavementTemperature ?? r.pavementTempF,
+    }));
 
   const icy = corridorSensors.filter((s) => s.condition === 'ice');
   const snowCovered = corridorSensors.filter((s) => s.condition === 'snow-covered');
@@ -420,6 +587,17 @@ export async function assessStudentRoutes(
       s.condition === 'clear' &&
       (s.surfaceFriction === undefined || s.surfaceFriction >= 0.55)
   );
+
+  factors.push(
+    decisionRoad
+      ? `Snow-day call uses the worst bus road, ${decisionRoad.name}, hazard ${routeHazardScore}/100. That matches past Vermont closures: a corridor at 70 or higher was a close. Average of ${averagePool.length} bus-road reading${averagePool.length === 1 ? '' : 's'}: ${averageHazard}/100.`
+      : `No bus-road reading to score.`
+  );
+  if (badRoads.length > 0) {
+    badRoads.forEach((road) => {
+      factors.push(`Bad road: ${road.name} — ${road.reason} (road hazard ${road.hazard})`);
+    });
+  }
 
   // Cite closest corridor sensors
   corridorSensors.slice(0, 4).forEach((s) => {
@@ -514,19 +692,17 @@ export async function assessStudentRoutes(
     lowMu.filter((s) => (s.surfaceFriction ?? 1) < 0.35).length === 0;
 
   const schoolNames = highSchools.map((h) => h.name).join(', ');
-  const corridorList = [
-    ...new Set(highSchools.flatMap((h) => h.approachCorridors)),
-  ]
-    .slice(0, 8)
-    .join(', ');
-  let summary: string;
-  if (!passable || routeHazardScore >= 55) {
-    summary = `Checked ${schoolNames} main morning corridors (${corridorList}) with VTrans RWIS pavement/μ — hazardous (hazard ${routeHazardScore}/100). Combine with sky/weather APIs for close/delay.`;
-  } else if (routeHazardScore >= 30) {
-    summary = `Checked ${schoolNames} corridors (${corridorList}) on VTrans RWIS — elevated risk (hazard ${routeHazardScore}/100). Weigh with forecast APIs; delay more likely than full close if plows catch up.`;
-  } else {
-    summary = `Checked ${schoolNames} corridors (${corridorList}) on VTrans RWIS — mostly passable (hazard ${routeHazardScore}/100). Still combine with sky/weather API forecast.`;
-  }
+  const allCorridors = [...new Set(highSchools.flatMap((h) => h.approachCorridors))];
+  const corridorList = `${allCorridors.length} bus corridors`;
+  const badLine =
+    badRoads.length > 0
+      ? ` Specifically bad: ${badRoads
+          .map((r) => `${r.name} (${r.reason})`)
+          .join('; ')}.`
+      : '';
+  const summary = `Checked ${schoolNames} (${corridorList}). Call uses the worst bus road${
+    decisionRoad ? `, ${decisionRoad.name}, at ${routeHazardScore}/100` : ''
+  } — the same worst-road rule as past Vermont snow days. Average of roads with a reading: ${averageHazard}/100.${badLine}`;
 
   return {
     highSchools: highSchools.map((h) => ({
@@ -537,6 +713,9 @@ export async function assessStudentRoutes(
       approachCorridors: h.approachCorridors,
     })),
     corridorSensors: corridorSensors.slice(0, 10),
+    badRoads,
+    decisionRoad,
+    averageHazard,
     routeHazardScore,
     passable,
     summary,

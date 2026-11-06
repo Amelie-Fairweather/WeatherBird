@@ -4,6 +4,23 @@ export interface StudentRoutesInfo {
   summary: string;
   passable: boolean;
   routeHazardScore: number;
+  averageHazard?: number;
+  decisionRoad?: {
+    name: string;
+    hazard: number;
+    condition: string;
+    frictionMu: number;
+    pavementTempF: number;
+  };
+  badRoads?: Array<{
+    name: string;
+    reason: string;
+    hazard: number;
+    condition: string;
+    distanceMiles: number;
+    surfaceFriction?: number;
+    pavementTemperature?: number;
+  }>;
   highSchools: Array<{
     name: string;
     city: string;
@@ -128,17 +145,41 @@ export function StudentRoutesPanel({ routes }: { routes: StudentRoutesInfo }) {
               <span className="font-semibold">{hs.name}</span>
               <span className="text-gray-600"> ({hs.city})</span>
               <div className="text-gray-600 mt-1">
-                Approach corridors: {hs.approachCorridors.slice(0, 5).join(", ")}
+                Every corridor checked: {hs.approachCorridors.join(", ")}
               </div>
             </div>
           ))}
         </div>
       )}
       <div className="text-base font-cormorant text-gray-700 mb-2">
-        Route hazard: <span className="font-bold">{routes.routeHazardScore}/100</span>
-        {" · "}
-        {routes.passable ? "Corridors look passable" : "Corridors look unsafe for buses"}
+        Worst bus road: <span className="font-bold">{routes.routeHazardScore}/100</span>
+        {routes.decisionRoad ? ` (${routes.decisionRoad.name})` : ""}
+        {routes.averageHazard != null
+          ? ` · average of roads with a reading ${routes.averageHazard}/100`
+          : ""}
       </div>
+      <p className="text-sm font-cormorant text-gray-600 mb-3">
+        The close, delay, and open percentages follow past Vermont snow days. The worst bus road
+        sets the call. A corridor at 70 or higher was a close. Clear roads do not average that
+        away. Baselines are 6 inches to close, 3 inches to delay, 0.25 inches of ice, and a wind
+        chill of −25°F.
+      </p>
+      {routes.badRoads && routes.badRoads.length > 0 && (
+        <div className="mb-3 rounded-md border border-red-300 bg-white p-3">
+          <p className="font-semibold font-cormorant text-red-700 mb-2">Roads that are bad</p>
+          <ul className="space-y-1 text-base font-cormorant text-gray-800">
+            {routes.badRoads.map((road) => (
+              <li key={road.name}>
+                <span className="font-semibold">{road.name}</span>
+                {" — "}
+                {road.reason}
+                {" · "}
+                hazard {road.hazard}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
       {routes.corridorSensors.length > 0 && (
         <ul className="space-y-2 text-base font-cormorant text-gray-800">
           {routes.corridorSensors.slice(0, 5).map((s, idx) => (

@@ -37,6 +37,9 @@ import {
 import {
   VT_SNOW_DAY_BASELINES,
   applyLiveTrainingCalibration,
+  classifyTimingWindow,
+  estimateCorridorHazard,
+  estimateWeatherScore,
   getCalibratedProbabilityCategory,
   type CalibrationFeatures,
   type UserScoreBreakdown,
@@ -1173,7 +1176,7 @@ export async function predictSnowDay(
   // ——— TRAINING CALIBRATION (VT-SND-001..020) ———
   // Re-map weather + VTrans blend into multinomial close/delay/open with
   // labeled Vermont decision rules (ice, overnight→delay, lake wind, arctic cold).
-  const worstCorridor = studentRouteAssessment?.corridorSensors?.[0];
+  const decisionRoad = studentRouteAssessment?.decisionRoad;
   const calibrationFeatures: CalibrationFeatures = {
     snowfallInches: snowfall,
     tempF: temperatureF,
@@ -1191,55 +1194,90 @@ export async function predictSnowDay(
       targetDate
     ),
     conditionText: forecast.condition || '',
-    pavementTempF:
-      worstCorridor?.pavementTemperature ??
-      studentRouteAssessment?.corridorSensors?.find((s) => s.pavementTemperature != null)
-        ?.pavementTemperature ??
-      temperatureF,
-    surfaceCondition: worstCorridor?.condition || 'unknown',
-    frictionMu:
-      worstCorridor?.surfaceFriction ??
-      studentRouteAssessment?.corridorSensors?.find((s) => s.surfaceFriction != null)
-        ?.surfaceFriction ??
-      0.65,
+    pavementTempF: decisionRoad?.pavementTempF ?? temperatureF,
+    surfaceCondition: decisionRoad?.surfaceCondition || 'unknown',
+    frictionMu: decisionRoad?.frictionMu ?? 0.65,
     county: district.county || undefined,
     urbanHint: superintendent?.terrain === 'urban',
   };
 
-  const liveWeatherScore = Math.round(
-    hasVTransCorridors && studentRouteAssessment
-      ? Math.max(
-          0,
-          fullClosingScore // already blended; recover approximate pre-label weather via inverse not needed —
-        )
-      : fullClosingScore
+  // Measured bus roads win when they are actually bad.
+  // A clear arterial does not cancel a 6"+ storm still falling at bus time:
+  // past Vermont closes used that snowfall line when side bus roads had no sensor.
+  // Snow that already ended, with grip coming back, stays on the measured road (delay, not close).
+  let corridorHazard = decisionRoad?.hazard ?? 0;
+  const timing = classifyTimingWindow(
+    calibrationFeatures.timingWindow,
+    calibrationFeatures.conditionText,
+    calibrationFeatures.tempF
   );
+  const snowStillInBusWindow =
+    calibrationFeatures.snowfallInches >= VT_SNOW_DAY_BASELINES.fullClosingSnowfallInches &&
+    timing !== 'overnight_ended_early' &&
+    timing !== 'late_start' &&
+    timing !== 'rain_above_freezing';
+  const measuredClearArterial =
+    !!decisionRoad &&
+    decisionRoad.hazard < 45 &&
+    decisionRoad.frictionMu >= 0.55 &&
+    !decisionRoad.surfaceCondition.toLowerCase().includes('ice') &&
+    !decisionRoad.surfaceCondition.toLowerCase().includes('snow') &&
+    !decisionRoad.surfaceCondition.toLowerCase().includes('closed');
+  const iceClose =
+    calibrationFeatures.freezingRain ||
+    calibrationFeatures.iceInches >= VT_SNOW_DAY_BASELINES.iceInches;
 
-  // Prefer pre-blend weather when we still have route hazard; else use current close score
-  const weatherForCalib = hasVTransCorridors
-    ? Math.round(
-        clampScore(
-          // Reconstruct approximate weather contribution from additive path:
-          // after blend fullClosing ≈ 0.7*hazard + 0.3*weather  → weather ≈ (full - 0.7*h)/0.3
-          studentRouteAssessment
-            ? (fullClosingScore -
-                studentRouteAssessment.routeHazardScore * VT_SNOW_DAY_BASELINES.vtransWeight) /
-                VT_SNOW_DAY_BASELINES.weatherWeight
-            : fullClosingScore
-        )
-      )
-    : liveWeatherScore;
+  if (!decisionRoad && iceClose) {
+    corridorHazard = estimateCorridorHazard({
+      ...calibrationFeatures,
+      surfaceCondition: 'Icy / Black Ice',
+      frictionMu: 0.22,
+      pavementTempF: Math.min(calibrationFeatures.pavementTempF, 30),
+    });
+    calibrationFeatures.surfaceCondition = 'Icy / Black Ice';
+    calibrationFeatures.frictionMu = 0.22;
+    factors.push(
+      'No bus-road sensor. Ice matches past Vermont closes, so the corridor is scored as icy with μ=0.22.'
+    );
+  } else if (snowStillInBusWindow && (!decisionRoad || measuredClearArterial)) {
+    const historicalHazard = estimateCorridorHazard({
+      ...calibrationFeatures,
+      surfaceCondition: 'Snow Covered',
+      frictionMu: 0.32,
+      pavementTempF: Math.min(calibrationFeatures.pavementTempF, 28),
+    });
+    if (historicalHazard > corridorHazard) {
+      corridorHazard = historicalHazard;
+      calibrationFeatures.surfaceCondition = 'Snow Covered';
+      calibrationFeatures.frictionMu = 0.32;
+      factors.push(
+        decisionRoad
+          ? `${decisionRoad.name} reads clear, but snowfall is at the historical 6 inch close line and the other bus roads have no sensor. Corridor scored as snow-covered with μ=0.32.`
+          : 'No bus-road sensor. Snowfall is at the historical 6 inch close line during the bus window, so the corridor is scored as snow-covered with μ=0.32.'
+      );
+    }
+  }
 
+  const weatherForCalib = estimateWeatherScore(calibrationFeatures);
   const calibrated = applyLiveTrainingCalibration({
-    weatherScore: clampScore(weatherForCalib),
-    corridorHazard: studentRouteAssessment?.routeHazardScore ?? 0,
+    weatherScore: weatherForCalib,
+    corridorHazard,
     features: calibrationFeatures,
-    passable: studentRouteAssessment?.passable,
   });
+  factors.push(
+    `Call follows labeled Vermont snow days: weather ${weatherForCalib}/100, worst bus-road hazard ${corridorHazard}/100, 70% roads / 30% sky. Baselines are 6" close, 3" delay, 0.25" ice, and wind chill −25°F.`
+  );
+  factors.push(...calibrated.factors);
 
   // The three percentages ARE the call. A mild day (above freezing, no snow, no ice)
   // is 0 — do not leave the raw weather-point total on the card.
+  const measuredRoadThreat =
+    !!decisionRoad &&
+    (decisionRoad.surfaceCondition.toLowerCase().includes('ice') ||
+      decisionRoad.surfaceCondition.toLowerCase().includes('snow') ||
+      decisionRoad.frictionMu < 0.4);
   const benignDay =
+    !measuredRoadThreat &&
     snowfall < 0.5 &&
     (forecast.ice || 0) <= 0 &&
     !calibrationFeatures.freezingRain &&
