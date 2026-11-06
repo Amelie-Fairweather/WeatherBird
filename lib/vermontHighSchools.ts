@@ -46,7 +46,7 @@ export const VERMONT_HIGH_SCHOOLS: HighSchoolCampus[] = [
     zip: '05443',
     latitude: 44.1334,
     longitude: -73.0832,
-    approachCorridors: ['VT-116', 'VT-17', 'Lincoln Road', 'Starksboro Road', 'States Prison Hollow Road', 'Monkton Road', 'Burpee Road', 'Bristol Road'],
+    approachCorridors: ['Lincoln Road', 'Quaker Street', 'York Street', 'Elder Hill Road', 'VT-17', 'Airport Road', 'VT-116', 'States Prison Hollow Road', 'Big Hollow Road', 'Starksboro Road', 'Burpee Road', 'Monkton Road', 'Boro Heights', 'Silver Street', 'Lime Kiln Road', 'East Street', 'River Road', 'Town Hill Road', 'West Street', 'Main Street'],
     feederTowns: ['Bristol', 'Lincoln', 'Monkton', 'New Haven', 'Starksboro'],
   },
   {
@@ -57,7 +57,7 @@ export const VERMONT_HIGH_SCHOOLS: HighSchoolCampus[] = [
     zip: '05491',
     latitude: 44.1673,
     longitude: -73.254,
-    approachCorridors: ['US-7', 'VT-22A', 'VT-17', 'Green Street', 'Monkton Road', 'Panton Road', 'Lake Road', 'Basin Harbor Road'],
+    approachCorridors: ['US-7', 'Greenbush Road', 'Lake Road', 'Basin Harbor Road', 'Monkton Road', 'VT-22A', 'Panton Road', 'Jersey Street', 'VT-17', 'Goodspeed Road', 'Green Street', 'Maple Street', 'Main Street', 'Comfort Hill Road'],
     feederTowns: ['Vergennes', 'Ferrisburgh', 'Panton', 'Waltham', 'Addison'],
   },
 
@@ -70,7 +70,7 @@ export const VERMONT_HIGH_SCHOOLS: HighSchoolCampus[] = [
     zip: '05250',
     latitude: 43.0748,
     longitude: -73.154,
-    approachCorridors: ['US-7', 'VT-7A', 'East Arlington Road', 'Sandgate Road', 'Kansas Road', 'River Road'],
+    approachCorridors: ['Sandgate Road', 'Woodard Road', 'Chiselville Road', 'VT-7A', 'Kansas Road', 'East Arlington Road', 'River Road', 'Warm Brook Road'],
     feederTowns: ['Arlington', 'Sandgate', 'Sunderland'],
   },
   {
@@ -105,7 +105,7 @@ export const VERMONT_HIGH_SCHOOLS: HighSchoolCampus[] = [
     zip: '05828',
     latitude: 44.4112,
     longitude: -72.1401,
-    approachCorridors: ['US-2', 'VT-15', 'Peacham Road', 'Jamieson Road', 'Walden Hill Road', 'Brainerd Ridge Road'],
+    approachCorridors: ['VT-15', 'Walden Hill Road', 'Tampico Road', 'Green Mountain Road', 'US-2', 'Peacham Road', 'Jamieson Road', 'Brainerd Ridge Road', 'Bruce Badger Memorial Highway'],
     feederTowns: ['Danville', 'Walden'],
   },
   {
@@ -116,7 +116,7 @@ export const VERMONT_HIGH_SCHOOLS: HighSchoolCampus[] = [
     zip: '05847',
     latitude: 44.5048,
     longitude: -72.3682,
-    approachCorridors: ['VT-14', 'VT-15', 'VT-16', 'Wolcott Street', 'Craftsbury Road', 'Center Road', 'Lake Road'],
+    approachCorridors: ['VT-14', 'Craftsbury Road', 'Center Road', 'Wheelock Road', 'Wolcott Street', 'Woodbury Lake Road', 'East Hardwick Road', 'Mackville Road'],
     feederTowns: ['Hardwick', 'Craftsbury', 'Greensboro', 'Woodbury'],
   },
   {
@@ -151,7 +151,7 @@ export const VERMONT_HIGH_SCHOOLS: HighSchoolCampus[] = [
     zip: '05408',
     latitude: 44.5085,
     longitude: -73.2495,
-    approachCorridors: ['US-7', 'Shelburne Road', 'VT-127', 'North Avenue', 'Colchester Avenue', 'Main Street', 'Pine Street', 'Institute Road'],
+    approachCorridors: ['North Avenue', 'Shore Road', 'Institute Road', 'VT-127', 'Colchester Avenue', 'US-7', 'Shelburne Road', 'Pine Street', 'Flynn Avenue', 'Main Street', 'East Avenue'],
     feederTowns: ['Burlington'],
   },
   {
@@ -186,7 +186,7 @@ export const VERMONT_HIGH_SCHOOLS: HighSchoolCampus[] = [
     zip: '05446',
     latitude: 44.5439,
     longitude: -73.1557,
-    approachCorridors: ['US-2', 'US-7', 'VT-127', 'Blakely Road', 'Porters Point Road', 'Laker Lane', 'Malletts Bay Avenue', 'Severance Road'],
+    approachCorridors: ['Blakely Road', 'West Shore Road', 'Porters Point Road', 'Laker Lane', 'Malletts Bay Avenue', 'US-7', 'Severance Road', 'Clay Point Road', 'Jasper Mine Road', 'Barnes Avenue'],
     feederTowns: ['Colchester'],
   },
   {
@@ -212,7 +212,7 @@ export const VERMONT_HIGH_SCHOOLS: HighSchoolCampus[] = [
     zip: '05468',
     latitude: 44.6398,
     longitude: -73.1104,
-    approachCorridors: ['US-7', 'US-2', 'Middle Road', 'West Milton Road', 'Lake Road', 'Rebecca Lander Drive', 'Hardscrabble Road'],
+    approachCorridors: ['Middle Road', 'West Milton Road', 'Lake Road', 'Bear Trap Road', 'Everest Road', 'US-7', 'Hardscrabble Road', 'Manley Road', 'Westford Road', 'Rebecca Lander Drive'],
     feederTowns: ['Milton'],
   },
   {
@@ -240,7 +240,7 @@ export const VERMONT_HIGH_SCHOOLS: HighSchoolCampus[] = [
     zip: '05403',
     latitude: 44.4665,
     longitude: -73.1712,
-    approachCorridors: ['US-7', 'Shelburne Road', 'US-2', 'Williston Road', 'Dorset Street', 'Kennedy Drive', 'Swift Street', 'Hinesburg Road'],
+    approachCorridors: ['Spear Street', 'Dorset Street', 'Swift Street', 'Hinesburg Road', 'VT-116', 'US-2', 'Williston Road', 'Kimball Avenue', 'Airport Parkway', 'White Street', 'Kennedy Drive'],
     feederTowns: ['South Burlington'],
   },
   {
@@ -251,7 +251,7 @@ export const VERMONT_HIGH_SCHOOLS: HighSchoolCampus[] = [
     zip: '05404',
     latitude: 44.495,
     longitude: -73.1856,
-    approachCorridors: ['US-2', 'US-7', 'VT-15', 'Main Street', 'Malletts Bay Avenue', 'East Spring Street', 'Barlow Street'],
+    approachCorridors: ['Main Street', 'Malletts Bay Avenue', 'West Canal Street', 'Gilbrook Road', 'VT-15', 'East Allen Street', 'Barlow Street', 'East Spring Street', 'Weaver Street'],
     feederTowns: ['Winooski'],
   },
 
@@ -297,7 +297,7 @@ export const VERMONT_HIGH_SCHOOLS: HighSchoolCampus[] = [
     zip: '05450',
     latitude: 44.8592,
     longitude: -72.7229,
-    approachCorridors: ['VT-105', 'VT-108', 'VT-118', 'Main Street', 'Boston Post Road', 'Perley Road', 'Enosburg Mountain Road'],
+    approachCorridors: ['VT-118', 'VT-108', 'Enosburg Mountain Road', 'West Hill Road', 'Boston Post Road', 'VT-105', 'Berkshire Center Road', 'Perley Road', 'Main Street'],
     feederTowns: ['Enosburgh', 'Berkshire', 'Montgomery', 'Sheldon'],
   },
   {
@@ -308,7 +308,7 @@ export const VERMONT_HIGH_SCHOOLS: HighSchoolCampus[] = [
     zip: '05488',
     latitude: 44.9181,
     longitude: -73.1243,
-    approachCorridors: ['US-7', 'VT-78', 'VT-105', 'VT-207', 'Grand Avenue', 'Highgate Road', 'Swanton Road'],
+    approachCorridors: ['VT-78', 'VT-207', 'Morses Line Road', 'Franklin Center Road', 'Highgate Road', 'US-7', 'Grand Avenue', 'Lake Road', 'Maquam Shore Road', 'Swanton Road'],
     feederTowns: ['Swanton', 'Highgate', 'Franklin'],
   },
 
@@ -347,7 +347,7 @@ export const VERMONT_HIGH_SCHOOLS: HighSchoolCampus[] = [
     zip: '05602',
     latitude: 44.2601,
     longitude: -72.5754,
-    approachCorridors: ['US-2', 'VT-12', 'Main Street', 'State Street', 'River Street', 'Barre Street', 'Elm Street', 'Northfield Street'],
+    approachCorridors: ['Main Street', 'Elm Street', 'Towne Hill Road', 'River Street', 'Barre Street', 'VT-12', 'Northfield Street', 'State Street'],
     feederTowns: ['Montpelier', 'Roxbury'],
   },
   {
@@ -369,7 +369,7 @@ export const VERMONT_HIGH_SCHOOLS: HighSchoolCampus[] = [
     zip: '05641',
     latitude: 44.197,
     longitude: -72.5021,
-    approachCorridors: ['US-302', 'VT-14', 'VT-62', 'North Main Street', 'Washington Street', 'South Main Street', 'Quarry Hill Road', 'Websterville Road'],
+    approachCorridors: ['Middle Road', 'Websterville Road', 'Graniteville Road', 'Quarry Hill Road', 'South Main Street', 'US-302', 'VT-14', 'North Main Street', 'Washington Street', 'VT-62'],
     feederTowns: ['Barre City', 'Barre Town'],
   },
   {
@@ -408,7 +408,7 @@ export const VERMONT_HIGH_SCHOOLS: HighSchoolCampus[] = [
     zip: '05081',
     latitude: 44.154,
     longitude: -72.0473,
-    approachCorridors: ['US-5', 'US-302', 'VT-232', 'I-91', 'Scott Highway', 'Main Street', 'Groton Road'],
+    approachCorridors: ['US-302', 'VT-232', 'Scott Highway', 'Groton Road', 'US-5', 'Ryegate Road', 'Jefferson Hill Road', 'Minard Hill Road'],
     feederTowns: ['Ryegate', 'Groton', 'Wells River', 'Newbury'],
   },
   {
@@ -452,7 +452,7 @@ export const VERMONT_HIGH_SCHOOLS: HighSchoolCampus[] = [
     zip: '05060',
     latitude: 43.9251,
     longitude: -72.6659,
-    approachCorridors: ['VT-12', 'VT-14', 'VT-66', 'Forest Street', 'Central Street', 'Fish Hill Road', 'South Randolph Road', 'Ridge Road'],
+    approachCorridors: ['VT-12', 'Braintree Mountain Road', 'Fish Hill Road', 'Forest Street', 'Central Street', 'VT-14', 'VT-66', 'Ridge Road', 'South Randolph Road'],
     feederTowns: ['Randolph', 'Braintree', 'Brookfield'],
   },
 
@@ -498,7 +498,7 @@ export const VERMONT_HIGH_SCHOOLS: HighSchoolCampus[] = [
     zip: '05764',
     latitude: 43.517,
     longitude: -73.2362,
-    approachCorridors: ['VT-31', 'VT-140', 'VT-30', 'Main Street', 'Beaman Street', 'East Poultney Road', 'Cross Road'],
+    approachCorridors: ['VT-140', 'Garron Road', 'East Poultney Road', 'Main Street', 'VT-31', 'VT-30', 'Beaman Street', 'Thrall Road', 'Cross Road'],
     feederTowns: ['Poultney', 'Middletown Springs'],
   },
   {
@@ -509,7 +509,7 @@ export const VERMONT_HIGH_SCHOOLS: HighSchoolCampus[] = [
     zip: '05701',
     latitude: 43.6106,
     longitude: -72.9726,
-    approachCorridors: ['US-4', 'US-7', 'Stratton Road', 'Post Road', 'Woodstock Avenue', 'North Main Street', 'South Main Street', 'West Street'],
+    approachCorridors: ['US-7', 'Post Road', 'McKinley Avenue', 'North Main Street', 'US-4', 'Stratton Road', 'Woodstock Avenue', 'South Main Street', 'West Street'],
     feederTowns: ['Rutland City', 'Rutland Town'],
   },
 
@@ -522,7 +522,7 @@ export const VERMONT_HIGH_SCHOOLS: HighSchoolCampus[] = [
     zip: '05101',
     latitude: 43.1334,
     longitude: -72.444,
-    approachCorridors: ['US-5', 'VT-103', 'VT-121', 'VT-35', 'Rockingham Road', 'Westminster West Road', 'Back Westminster Road', 'Saxtons River Road'],
+    approachCorridors: ['VT-121', 'VT-35', 'Saxtons River Road', 'Rockingham Road', 'US-5', 'Westminster West Road', 'Athens Hill Road', 'Back Westminster Road'],
     feederTowns: ['Rockingham', 'Westminster', 'Saxtons River', 'Grafton', 'Athens'],
   },
   {
@@ -547,7 +547,7 @@ export const VERMONT_HIGH_SCHOOLS: HighSchoolCampus[] = [
     zip: '05143',
     latitude: 43.2629,
     longitude: -72.5951,
-    approachCorridors: ['VT-11', 'VT-103', 'VT-131', 'VT-10', 'Main Street', 'North Springfield Road'],
+    approachCorridors: ['VT-11', 'Andover Ridge Road', 'Simonsville Road', 'Main Street', 'VT-103', 'VT-131', 'VT-10', 'North Springfield Road'],
     feederTowns: ['Chester', 'Andover', 'Cavendish', 'Baltimore'],
   },
   {
@@ -558,7 +558,7 @@ export const VERMONT_HIGH_SCHOOLS: HighSchoolCampus[] = [
     zip: '05001',
     latitude: 43.6487,
     longitude: -72.3193,
-    approachCorridors: ['US-4', 'US-5', 'VT-14', 'I-89', 'I-91', 'Maple Street', 'Hartford Avenue', 'Quechee Main Street', 'Christian Street'],
+    approachCorridors: ['US-4', 'Quechee Main Street', 'Hartford Avenue', 'US-5', 'Maple Street', 'Christian Street', 'Dothan Road', 'Jericho Street'],
     feederTowns: ['Hartford', 'White River Junction', 'Wilder', 'Quechee'],
   },
   {
@@ -569,7 +569,7 @@ export const VERMONT_HIGH_SCHOOLS: HighSchoolCampus[] = [
     zip: '05156',
     latitude: 43.2984,
     longitude: -72.4823,
-    approachCorridors: ['VT-11', 'VT-106', 'VT-143', 'Main Street', 'Clinton Street', 'River Street', 'Skitchewaug Trail', 'Chester Road'],
+    approachCorridors: ['VT-11', 'Eureka Road', 'Hardscrabble Road', 'Seavers Brook Road', 'VT-106', 'VT-143', 'Skitchewaug Trail', 'Clinton Street', 'Main Street'],
     feederTowns: ['Springfield'],
   },
   {
